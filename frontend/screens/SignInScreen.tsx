@@ -1,39 +1,20 @@
-import {
-  StyleSheet,
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-} from "react-native";
+import { StyleSheet, View, Text, TouchableOpacity } from "react-native";
 import { useNavigation } from "@react-navigation/native";
+import SignInForm from "../components/SignInForm";
 
 export default function SignInScreen() {
   const navigation = useNavigation();
+
+  const handleSignInSuccess = (userData: any) => {
+    // Navigate to Main screen only on successful login
+    navigation.navigate("Main" as never);
+  };
 
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Sign In</Text>
 
-      <View style={styles.inputContainer}>
-        <TextInput
-          style={styles.input}
-          placeholder="Email"
-          keyboardType="email-address"
-          autoCapitalize="none"
-        />
-        <TextInput
-          style={styles.input}
-          placeholder="Password"
-          secureTextEntry
-        />
-      </View>
-
-      <TouchableOpacity
-        style={styles.button}
-        onPress={() => navigation.navigate("Main" as never)}
-      >
-        <Text style={styles.buttonText}>Sign In</Text>
-      </TouchableOpacity>
+      <SignInForm onSignInSuccess={handleSignInSuccess} />
 
       <TouchableOpacity
         style={styles.backButton}
@@ -57,28 +38,6 @@ const styles = StyleSheet.create({
     color: "#007AFF",
     marginTop: 60,
     marginBottom: 40,
-  },
-  inputContainer: {
-    marginBottom: 20,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: "#ddd",
-    padding: 15,
-    borderRadius: 12,
-    marginBottom: 15,
-    fontSize: 16,
-  },
-  button: {
-    backgroundColor: "#007AFF",
-    padding: 16,
-    borderRadius: 12,
-    alignItems: "center",
-  },
-  buttonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "600",
   },
   backButton: {
     marginTop: 20,

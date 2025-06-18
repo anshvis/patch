@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List
 from ..database import get_db
 from ..models.user import User
-from ..schemas.user import UserCreate, User as UserSchema, UserUpdate
+from ..schemas.user import UserCreate, User as UserSchema, UserUpdate, UserLogin
 from passlib.context import CryptContext
 
 router = APIRouter(
@@ -16,6 +16,38 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def get_password_hash(password: str):
     return pwd_context.hash(password)
+
+def verify_password(plain_password: str, hashed_password: str):
+    return pwd_context.verify(plain_password, hashed_password)
+
+@router.post("/login")
+def login(user_data: UserLogin, db: Session = Depends(get_db)):
+    # Find user by username
+    user = db.query(User).filter(User.username == user_data.username).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password"
+        )
+    
+    # Verify password
+    if not verify_password(user_data.password, user.password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password"
+        )
+    
+    # Return user data (excluding password)
+    return {
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "interests": user.interests,
+        "school": user.school,
+        "hometown": user.hometown,
+        "job": user.job,
+        "links": user.links
+    }
 
 @router.post("/", response_model=UserSchema)
 def create_user(user: UserCreate, db: Session = Depends(get_db)):
