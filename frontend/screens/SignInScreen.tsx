@@ -1,11 +1,14 @@
 import { StyleSheet, View, Text, TouchableOpacity } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import SignInForm from "../components/SignInForm";
+import { useUser } from "../components/UserContext";
 
 export default function SignInScreen() {
   const navigation = useNavigation();
+  const { setUser } = useUser();
 
   const handleSignInSuccess = (userData: any) => {
+    setUser(userData);
     // Navigate to Main screen only on successful login
     navigation.navigate("Main" as never);
   };

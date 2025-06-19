@@ -41,6 +41,8 @@ def login(user_data: UserLogin, db: Session = Depends(get_db)):
     return {
         "id": user.id,
         "username": user.username,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
         "email": user.email,
         "interests": user.interests,
         "school": user.school,
@@ -72,6 +74,8 @@ def create_user(user: UserCreate, db: Session = Depends(get_db)):
     db_user = User(
         email=user.email,
         username=user.username,
+        first_name=user.first_name,
+        last_name=user.last_name,
         password=hashed_password,
         interests=user.interests,
         school=user.school,
