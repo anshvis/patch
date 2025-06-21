@@ -1,102 +1,58 @@
-import { StatusBar } from "expo-status-bar";
-import { StyleSheet, View, Dimensions, Alert } from "react-native";
-import MapView, { Region } from "react-native-maps";
-import { useEffect, useState, useRef } from "react";
-import * as Location from "expo-location";
+import { NavigationContainer } from "@react-navigation/native";
+import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import { Ionicons } from "@expo/vector-icons";
+import HomeScreen from "./screens/HomeScreen";
+import FindScreen from "./screens/FindScreen";
+import ProfileScreen from "./screens/ProfileScreen";
+import LandingScreen from "./screens/LandingScreen";
+import SignInScreen from "./screens/SignInScreen";
+import SignUpScreen from "./screens/SignUpScreen";
+import { UserProvider } from "./components/UserContext";
 
-export default function App() {
-  const [location, setLocation] = useState<Location.LocationObject | null>(
-    null
-  );
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [region, setRegion] = useState<Region>({
-    latitude: 37.78825,
-    longitude: -122.4324,
-    latitudeDelta: 0.0922,
-    longitudeDelta: 0.0421,
-  });
-  const mapRef = useRef<MapView>(null);
+const Tab = createBottomTabNavigator();
+const Stack = createNativeStackNavigator();
 
-  useEffect(() => {
-    let locationSubscription: Location.LocationSubscription;
-
-    const startLocationTracking = async () => {
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") {
-        setErrorMsg("Permission to access location was denied");
-        Alert.alert(
-          "Permission Denied",
-          "Location permission is required to show your position on the map."
-        );
-        return;
-      }
-
-      // Get initial location
-      let initialLocation = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.High,
-      });
-      setLocation(initialLocation);
-
-      // Update region with initial location
-      setRegion({
-        latitude: initialLocation.coords.latitude,
-        longitude: initialLocation.coords.longitude,
-        latitudeDelta: 0.0922,
-        longitudeDelta: 0.0421,
-      });
-
-      // Start watching position
-      locationSubscription = await Location.watchPositionAsync(
-        {
-          accuracy: Location.Accuracy.High,
-          timeInterval: 1000, // Update every second
-          distanceInterval: 1, // Update every meter
-        },
-        (newLocation) => {
-          setLocation(newLocation);
-          // Update map region to follow user
-          setRegion({
-            latitude: newLocation.coords.latitude,
-            longitude: newLocation.coords.longitude,
-            latitudeDelta: 0.0922,
-            longitudeDelta: 0.0421,
-          });
-        }
-      );
-    };
-
-    startLocationTracking();
-
-    // Cleanup subscription on unmount
-    return () => {
-      if (locationSubscription) {
-        locationSubscription.remove();
-      }
-    };
-  }, []);
-
+function MainTabs() {
   return (
-    <View style={styles.container}>
-      <MapView
-        ref={mapRef}
-        style={styles.map}
-        region={region}
-        showsUserLocation={true}
-        showsMyLocationButton={true}
-        followsUserLocation={true}
-      />
-      <StatusBar style="auto" />
-    </View>
+    <Tab.Navigator
+      screenOptions={({ route }) => ({
+        tabBarIcon: ({ focused, color, size }) => {
+          let iconName;
+
+          if (route.name === "Home") {
+            iconName = focused ? "map" : "map-outline";
+          } else if (route.name === "Find") {
+            iconName = focused ? "search" : "search-outline";
+          } else if (route.name === "Profile") {
+            iconName = focused ? "person" : "person-outline";
+          }
+
+          return <Ionicons name={iconName as any} size={size} color={color} />;
+        },
+        tabBarActiveTintColor: "#007AFF",
+        tabBarInactiveTintColor: "gray",
+        headerShown: false,
+      })}
+    >
+      <Tab.Screen name="Home" component={HomeScreen} />
+      <Tab.Screen name="Find" component={FindScreen} />
+      <Tab.Screen name="Profile" component={ProfileScreen} />
+    </Tab.Navigator>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#fff",
-  },
-  map: {
-    width: Dimensions.get("window").width,
-    height: Dimensions.get("window").height,
-  },
-});
+export default function App() {
+  return (
+    <UserProvider>
+      <NavigationContainer>
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="Landing" component={LandingScreen} />
+          <Stack.Screen name="SignIn" component={SignInScreen} />
+          <Stack.Screen name="SignUp" component={SignUpScreen} />
+          <Stack.Screen name="Main" component={MainTabs} />
+        </Stack.Navigator>
+      </NavigationContainer>
+    </UserProvider>
+  );
+}

@@ -1,0 +1,21 @@
+# Python virtual environment
+venv/
+
+# Byte-compiled / cache files
+__pycache__/
+*.pyc
+*.pyo
+
+# Test scripts and test output
+app/tests/
+app/run_test.py
+test_user.py
+
+# Environment files
+.env
+
+# macOS system files
+.DS_Store
+
+# SQLite DB (if any)
+*.sqlite3 
