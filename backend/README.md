@@ -47,3 +47,7 @@ backend/
 ├── requirements.txt     # Python dependencies
 └── README.md           # This file
 ``` 
+
+5. Check DB
+- psql -U anshviswanathan -d patch_db
+    \d users #check fields

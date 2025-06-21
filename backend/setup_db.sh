@@ -20,6 +20,9 @@ CREATE TABLE users (
     hometown VARCHAR,
     job VARCHAR,
     links JSON,
+    latitude FLOAT,
+    longitude FLOAT,
+    last_location_update TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ
 );

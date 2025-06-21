@@ -1,10 +1,16 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Body
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Dict
 from ..database import get_db
 from ..models.user import User
 from ..schemas.user import UserCreate, User as UserSchema, UserUpdate, UserLogin
 from passlib.context import CryptContext
+from datetime import datetime
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/users",
@@ -37,6 +43,8 @@ def login(user_data: UserLogin, db: Session = Depends(get_db)):
             detail="Incorrect username or password"
         )
     
+    logger.info(f"User logged in: {user.id} - {user.username}")
+    
     # Return user data (excluding password)
     return {
         "id": user.id,
@@ -48,45 +56,67 @@ def login(user_data: UserLogin, db: Session = Depends(get_db)):
         "school": user.school,
         "hometown": user.hometown,
         "job": user.job,
-        "links": user.links
+        "links": user.links,
+        "latitude": user.latitude,
+        "longitude": user.longitude
     }
 
-@router.post("/", response_model=UserSchema)
-def create_user(user: UserCreate, db: Session = Depends(get_db)):
-    # Check if email already exists
-    db_user = db.query(User).filter(User.email == user.email).first()
-    if db_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered"
-        )
-    
+@router.post("/register")
+def register_user(user_data: UserCreate, db: Session = Depends(get_db)):
     # Check if username already exists
-    db_user = db.query(User).filter(User.username == user.username).first()
-    if db_user:
+    existing_user = db.query(User).filter(User.username == user_data.username).first()
+    if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Username already taken"
         )
     
+    # Check if email already exists
+    existing_user = db.query(User).filter(User.email == user_data.email).first()
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already registered"
+        )
+    
     # Create new user
-    hashed_password = get_password_hash(user.password)
+    hashed_password = get_password_hash(user_data.password)
     db_user = User(
-        email=user.email,
-        username=user.username,
-        first_name=user.first_name,
-        last_name=user.last_name,
+        email=user_data.email,
+        username=user_data.username,
+        first_name=user_data.first_name,
+        last_name=user_data.last_name,
         password=hashed_password,
-        interests=user.interests,
-        school=user.school,
-        hometown=user.hometown,
-        job=user.job,
-        links=user.links
+        interests=user_data.interests,
+        school=user_data.school,
+        hometown=user_data.hometown,
+        job=user_data.job,
+        links=user_data.links,
+        latitude=user_data.latitude,
+        longitude=user_data.longitude,
+        last_location_update=datetime.now() if user_data.latitude and user_data.longitude else None
     )
     db.add(db_user)
     db.commit()
     db.refresh(db_user)
-    return db_user
+    
+    logger.info(f"New user registered: {db_user.id} - {db_user.username}")
+    
+    # Return user data (excluding password) similar to login
+    return {
+        "id": db_user.id,
+        "username": db_user.username,
+        "first_name": db_user.first_name,
+        "last_name": db_user.last_name,
+        "email": db_user.email,
+        "interests": db_user.interests,
+        "school": db_user.school,
+        "hometown": db_user.hometown,
+        "job": db_user.job,
+        "links": db_user.links,
+        "latitude": db_user.latitude,
+        "longitude": db_user.longitude
+    }
 
 @router.get("/", response_model=List[UserSchema])
 def read_users(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
@@ -111,12 +141,57 @@ def update_user(user_id: int, user: UserUpdate, db: Session = Depends(get_db)):
     if "password" in update_data:
         update_data["password"] = get_password_hash(update_data["password"])
     
+    # If location is being updated, set the last_location_update timestamp
+    if "latitude" in update_data or "longitude" in update_data:
+        update_data["last_location_update"] = datetime.now()
+    
     for key, value in update_data.items():
         setattr(db_user, key, value)
     
     db.commit()
     db.refresh(db_user)
     return db_user
+
+@router.patch("/{user_id}/location")
+def update_user_location(
+    request: Request,
+    user_id: int,
+    location_data: Dict[str, float] = Body(...),
+    db: Session = Depends(get_db)
+):
+    logger.info(f"Location update request for user {user_id}")
+    logger.info(f"Request headers: {request.headers}")
+    logger.info(f"Location data: {location_data}")
+    
+    # Check if the user exists
+    db_user = db.query(User).filter(User.id == user_id).first()
+    if db_user is None:
+        logger.error(f"User {user_id} not found")
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Update location data
+    if "latitude" in location_data and "longitude" in location_data:
+        db_user.latitude = location_data["latitude"]
+        db_user.longitude = location_data["longitude"]
+        db_user.last_location_update = datetime.now()
+        
+        db.commit()
+        db.refresh(db_user)
+        
+        logger.info(f"Location updated for user {user_id}: lat={db_user.latitude}, lng={db_user.longitude}")
+        
+        return {
+            "id": db_user.id,
+            "latitude": db_user.latitude,
+            "longitude": db_user.longitude,
+            "last_location_update": db_user.last_location_update
+        }
+    else:
+        logger.error(f"Invalid location data for user {user_id}: {location_data}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Both latitude and longitude are required"
+        )
 
 @router.delete("/{user_id}")
 def delete_user(user_id: int, db: Session = Depends(get_db)):

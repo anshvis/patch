@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, JSON, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, String, JSON, ForeignKey, DateTime, Float
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from ..database import Base
@@ -18,5 +18,8 @@ class User(Base):
     job = Column(String)
     # links: JSON with keys: 'instagram', 'snapchat', 'spotify', 'linkedin', 'github'
     links = Column(JSON, default=dict)
+    latitude = Column(Float, nullable=True)  # User's last known latitude
+    longitude = Column(Float, nullable=True)  # User's last known longitude
+    last_location_update = Column(DateTime(timezone=True), nullable=True)  # When location was last updated
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now()) 

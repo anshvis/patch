@@ -353,9 +353,7 @@ export default function ProfileScreen() {
                   style={styles.addSocialButton}
                   onPress={() => setShowSocialPicker(true)}
                 >
-                  <Text style={styles.addInterestButtonText}>
-                    Add Link
-                  </Text>
+                  <Text style={styles.addInterestButtonText}>Add Link</Text>
                 </TouchableOpacity>
               )
             )}

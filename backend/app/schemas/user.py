@@ -16,6 +16,8 @@ class UserBase(BaseModel):
     job: Optional[str] = None
     # links: Only these keys allowed: instagram, snapchat, spotify, linkedin, github
     links: Optional[Dict[str, Optional[str]]] = {k: None for k in SOCIAL_KEYS}
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 class UserCreate(UserBase):
     password: str
@@ -32,11 +34,14 @@ class UserUpdate(BaseModel):
     job: Optional[str] = None
     # Only these keys allowed in links
     links: Optional[Dict[str, Optional[str]]] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 class User(UserBase):
     id: int
     created_at: datetime
     updated_at: Optional[datetime] = None
+    last_location_update: Optional[datetime] = None
 
     class Config:
         from_attributes = True
