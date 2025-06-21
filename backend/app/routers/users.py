@@ -3,10 +3,11 @@ from sqlalchemy.orm import Session
 from typing import List, Dict
 from ..database import get_db
 from ..models.user import User
-from ..schemas.user import UserCreate, User as UserSchema, UserUpdate, UserLogin
+from ..schemas.user import UserCreate, User as UserSchema, UserUpdate, UserLogin, ContactsCheck
 from passlib.context import CryptContext
 from datetime import datetime
 import logging
+import re
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -25,6 +26,18 @@ def get_password_hash(password: str):
 
 def verify_password(plain_password: str, hashed_password: str):
     return pwd_context.verify(plain_password, hashed_password)
+
+def normalize_phone_number(phone_number: str) -> str:
+    """Normalize phone number to E.164 format"""
+    # Remove any non-digit characters
+    phone = re.sub(r'\D', '', phone_number)
+    
+    # Format as E.164 standard: +[country code][number]
+    # For simplicity, assuming US/Canada numbers if no country code
+    if not phone.startswith('1') and len(phone) == 10:
+        phone = '1' + phone
+        
+    return '+' + phone
 
 @router.post("/login")
 def login(user_data: UserLogin, db: Session = Depends(get_db)):
@@ -49,9 +62,9 @@ def login(user_data: UserLogin, db: Session = Depends(get_db)):
     return {
         "id": user.id,
         "username": user.username,
+        "phone_number": user.phone_number,
         "first_name": user.first_name,
         "last_name": user.last_name,
-        "email": user.email,
         "interests": user.interests,
         "school": user.school,
         "hometown": user.hometown,
@@ -71,18 +84,18 @@ def register_user(user_data: UserCreate, db: Session = Depends(get_db)):
             detail="Username already taken"
         )
     
-    # Check if email already exists
-    existing_user = db.query(User).filter(User.email == user_data.email).first()
+    # Check if phone number already exists
+    existing_user = db.query(User).filter(User.phone_number == user_data.phone_number).first()
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered"
+            detail="Phone number already registered"
         )
     
     # Create new user
     hashed_password = get_password_hash(user_data.password)
     db_user = User(
-        email=user_data.email,
+        phone_number=user_data.phone_number,
         username=user_data.username,
         first_name=user_data.first_name,
         last_name=user_data.last_name,
@@ -106,9 +119,9 @@ def register_user(user_data: UserCreate, db: Session = Depends(get_db)):
     return {
         "id": db_user.id,
         "username": db_user.username,
+        "phone_number": db_user.phone_number,
         "first_name": db_user.first_name,
         "last_name": db_user.last_name,
-        "email": db_user.email,
         "interests": db_user.interests,
         "school": db_user.school,
         "hometown": db_user.hometown,
@@ -117,6 +130,35 @@ def register_user(user_data: UserCreate, db: Session = Depends(get_db)):
         "latitude": db_user.latitude,
         "longitude": db_user.longitude
     }
+
+@router.post("/contacts/check")
+def check_contacts(contact_data: ContactsCheck, db: Session = Depends(get_db)):
+    """Check which phone numbers from contacts are registered users"""
+    # Normalize all phone numbers
+    normalized_numbers = [normalize_phone_number(phone) for phone in contact_data.phone_numbers]
+    
+    # Find users with matching phone numbers
+    registered_users = db.query(User).filter(User.phone_number.in_(normalized_numbers)).all()
+    
+    # Create a map of phone number to user data
+    result = {}
+    for user in registered_users:
+        result[user.phone_number] = {
+            "id": user.id,
+            "username": user.username,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "is_registered": True
+        }
+    
+    # Add non-registered numbers
+    for phone in normalized_numbers:
+        if phone not in result:
+            result[phone] = {
+                "is_registered": False
+            }
+    
+    return result
 
 @router.get("/", response_model=List[UserSchema])
 def read_users(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):

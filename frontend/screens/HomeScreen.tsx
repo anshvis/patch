@@ -17,6 +17,10 @@ export default function HomeScreen() {
     longitudeDelta: 0.0421,
   });
   const mapRef = useRef<MapView>(null);
+  const lastLocationRef = useRef<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
 
   // Debug log for user object
   useEffect(() => {
@@ -51,7 +55,13 @@ export default function HomeScreen() {
       };
       setRegion(newRegion);
 
-      // Update the user's location in the backend if logged in
+      // Save the last location for cleanup
+      lastLocationRef.current = {
+        latitude: initialLocation.coords.latitude,
+        longitude: initialLocation.coords.longitude,
+      };
+
+      // Update the user's location in the backend if logged in (ONLY ON INITIAL LOAD)
       if (user) {
         console.log("Updating initial location for user:", user.id);
         try {
@@ -83,25 +93,35 @@ export default function HomeScreen() {
           };
           setRegion(newRegion);
 
-          // Update the user's location in the backend if logged in
-          if (user) {
-            console.log("Updating location on movement for user:", user.id);
-            updateUserLocation(
-              newLocation.coords.latitude,
-              newLocation.coords.longitude
-            ).catch((error) => {
-              console.error("Error updating location on movement:", error);
-            });
-          }
+          // Save the last location for cleanup, but don't update the backend
+          lastLocationRef.current = {
+            latitude: newLocation.coords.latitude,
+            longitude: newLocation.coords.longitude,
+          };
         }
       );
     };
 
     startLocationTracking();
 
+    // Cleanup function - update location when component unmounts
     return () => {
       if (locationSubscription) {
         locationSubscription.remove();
+      }
+
+      // Update the user's location one last time when leaving the app
+      if (user && lastLocationRef.current) {
+        console.log(
+          "Updating final location before unmount for user:",
+          user.id
+        );
+        updateUserLocation(
+          lastLocationRef.current.latitude,
+          lastLocationRef.current.longitude
+        ).catch((error) => {
+          console.error("Error updating final location:", error);
+        });
       }
     };
   }, [user, updateUserLocation]);

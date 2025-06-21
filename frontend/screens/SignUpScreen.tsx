@@ -12,6 +12,7 @@ import {
 import { useNavigation } from "@react-navigation/native";
 import { useState } from "react";
 import { useUser } from "../components/UserContext";
+import * as Contacts from "expo-contacts";
 
 export default function SignUpScreen() {
   const navigation = useNavigation();
@@ -19,7 +20,7 @@ export default function SignUpScreen() {
   const [formData, setFormData] = useState({
     first_name: "",
     last_name: "",
-    email: "",
+    phone_number: "",
     username: "",
     password: "",
     confirmPassword: "",
@@ -31,7 +32,7 @@ export default function SignUpScreen() {
     if (
       !formData.first_name ||
       !formData.last_name ||
-      !formData.email ||
+      !formData.phone_number ||
       !formData.username ||
       !formData.password
     ) {
@@ -49,6 +50,13 @@ export default function SignUpScreen() {
       return;
     }
 
+    // Simple phone number validation
+    const phoneRegex = /^\+?[0-9]{10,15}$/;
+    if (!phoneRegex.test(formData.phone_number.replace(/\D/g, ""))) {
+      Alert.alert("Error", "Please enter a valid phone number");
+      return;
+    }
+
     setLoading(true);
     try {
       const response = await fetch("http://10.0.0.64:8000/users/register", {
@@ -59,7 +67,7 @@ export default function SignUpScreen() {
         body: JSON.stringify({
           first_name: formData.first_name,
           last_name: formData.last_name,
-          email: formData.email,
+          phone_number: formData.phone_number,
           username: formData.username,
           password: formData.password,
         }),
@@ -72,6 +80,10 @@ export default function SignUpScreen() {
 
       const userData = await response.json();
       setUser(userData);
+
+      // Ask for contacts permission after successful signup
+      requestContactsPermission();
+
       navigation.navigate("Main" as never);
     } catch (error) {
       console.error("Sign up error:", error);
@@ -81,6 +93,25 @@ export default function SignUpScreen() {
       );
     } finally {
       setLoading(false);
+    }
+  };
+
+  const requestContactsPermission = async () => {
+    try {
+      const { status } = await Contacts.requestPermissionsAsync();
+      if (status === "granted") {
+        Alert.alert(
+          "Contacts Access Granted",
+          "You can now connect with friends from your contacts!"
+        );
+      } else {
+        Alert.alert(
+          "Contacts Access Denied",
+          "To connect with friends from your contacts, please enable contacts access in settings."
+        );
+      }
+    } catch (error) {
+      console.error("Error requesting contacts permission:", error);
     }
   };
 
@@ -116,10 +147,12 @@ export default function SignUpScreen() {
           />
           <TextInput
             style={styles.input}
-            placeholder="Email"
-            value={formData.email}
-            onChangeText={(text) => setFormData({ ...formData, email: text })}
-            keyboardType="email-address"
+            placeholder="Phone Number"
+            value={formData.phone_number}
+            onChangeText={(text) =>
+              setFormData({ ...formData, phone_number: text })
+            }
+            keyboardType="phone-pad"
             autoCapitalize="none"
           />
           <TextInput
