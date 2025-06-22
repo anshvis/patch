@@ -19,6 +19,17 @@ export interface User {
   school: string;
   latitude?: number;
   longitude?: number;
+  last_location_update?: string;
+}
+
+export interface FriendWithLocation {
+  id: number;
+  username: string;
+  first_name?: string;
+  last_name?: string;
+  latitude?: number;
+  longitude?: number;
+  last_location_update?: string;
 }
 
 interface UserContextType {
@@ -26,6 +37,7 @@ interface UserContextType {
   setUser: (user: User | null) => void;
   updateUserLocation: (latitude: number, longitude: number) => Promise<void>;
   checkContacts: (phoneNumbers: string[]) => Promise<any>;
+  getFriendsWithLocations: () => Promise<FriendWithLocation[]>;
 }
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
@@ -96,6 +108,31 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  // Function to get friends with their locations
+  const getFriendsWithLocations = async (): Promise<FriendWithLocation[]> => {
+    if (!user) return [];
+
+    try {
+      const response = await fetch(`${API_URL}/users/${user.id}/friends`);
+
+      if (response.ok) {
+        const data = await response.json();
+        // Filter friends that have location data
+        const friendsWithLocation = data.filter(
+          (friend: FriendWithLocation) =>
+            friend.latitude !== null && friend.longitude !== null
+        );
+        return friendsWithLocation;
+      } else {
+        console.error("Failed to fetch friends:", response.status);
+        return [];
+      }
+    } catch (error) {
+      console.error("Error fetching friends with locations:", error);
+      return [];
+    }
+  };
+
   // Function to check contacts
   const checkContacts = async (phoneNumbers: string[]) => {
     try {
@@ -123,7 +160,13 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
 
   return (
     <UserContext.Provider
-      value={{ user, setUser, updateUserLocation, checkContacts }}
+      value={{
+        user,
+        setUser,
+        updateUserLocation,
+        checkContacts,
+        getFriendsWithLocations,
+      }}
     >
       {children}
     </UserContext.Provider>
