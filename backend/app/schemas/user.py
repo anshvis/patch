@@ -17,6 +17,7 @@ class UserBase(BaseModel):
     job: Optional[str] = None
     # links: Only these keys allowed: instagram, snapchat, spotify, linkedin, github
     links: Dict[str, str] = {}
+    profile_picture: Optional[str] = None  # URL or base64 string for profile picture
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     
@@ -42,6 +43,7 @@ class UserUpdate(BaseModel):
     job: Optional[str] = None
     # Only these keys allowed in links
     links: Optional[Dict[str, str]] = None
+    profile_picture: Optional[str] = None  # URL or base64 string for profile picture
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     

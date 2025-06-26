@@ -109,6 +109,37 @@ def get_friend_requests(user_id: int, db: Session = Depends(get_db)):
     
     return requesters
 
+@router.get("/{user_id}/sent-friend-requests", response_model=List[UserSchema])
+def get_sent_friend_requests(user_id: int, db: Session = Depends(get_db)):
+    """Get all friend requests sent by a user that are still pending"""
+    # Check if user exists
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Get all pending friendships where the user is the sender
+    sent_friendships = db.query(Friendship).filter(
+        Friendship.user_id == user_id,
+        Friendship.is_accepted == False
+    ).all()
+    
+    # Extract recipient IDs
+    recipient_ids = [friendship.friend_id for friendship in sent_friendships]
+    
+    # Get all recipient users
+    recipients = db.query(User).filter(User.id.in_(recipient_ids)).all()
+    
+    # Enrich user objects with friendship_id
+    for i, recipient in enumerate(recipients):
+        # Find the corresponding friendship
+        for friendship in sent_friendships:
+            if friendship.friend_id == recipient.id:
+                # Add friendship_id to the user object
+                setattr(recipient, "friendship_id", friendship.id)
+                break
+    
+    return recipients
+
 @router.put("/{user_id}/friend-requests/{friendship_id}", status_code=status.HTTP_200_OK)
 def respond_to_friend_request(
     user_id: int, 

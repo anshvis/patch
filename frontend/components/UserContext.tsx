@@ -20,6 +20,7 @@ export interface User {
   latitude?: number;
   longitude?: number;
   last_location_update?: string;
+  profile_picture?: string;
 }
 
 export interface FriendWithLocation {
@@ -47,6 +48,20 @@ const API_URL = "http://10.0.0.64:8000";
 
 // Minimum time between location updates (in milliseconds)
 const MIN_UPDATE_INTERVAL = 30000; // 30 seconds
+
+// Normalize phone number to match backend format
+const normalizePhoneNumber = (phone: string): string => {
+  // Remove any non-digit characters
+  const digits = phone.replace(/\D/g, "");
+
+  // Format as E.164 standard: +[country code][number]
+  // For simplicity, assuming US/Canada numbers if no country code
+  if (!digits.startsWith("1") && digits.length === 10) {
+    return "+1" + digits;
+  }
+
+  return "+" + digits;
+};
 
 export const UserProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
@@ -136,18 +151,41 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
   // Function to check contacts
   const checkContacts = async (phoneNumbers: string[]) => {
     try {
+      // Log the original phone numbers
+      console.log(
+        "Original phone numbers:",
+        JSON.stringify(phoneNumbers, null, 2)
+      );
+
+      // Ensure all phone numbers are normalized
+      const normalizedPhoneNumbers = phoneNumbers.map((phone) => {
+        const normalized = normalizePhoneNumber(phone);
+        console.log(`Normalizing: ${phone} -> ${normalized}`);
+        return normalized;
+      });
+
+      console.log(
+        `Checking ${normalizedPhoneNumbers.length} contacts against the server`
+      );
+      console.log(
+        "Normalized phone numbers:",
+        JSON.stringify(normalizedPhoneNumbers, null, 2)
+      );
+
       const response = await fetch(`${API_URL}/users/contacts/check`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          phone_numbers: phoneNumbers,
+          phone_numbers: normalizedPhoneNumbers,
         }),
       });
 
       if (response.ok) {
-        return await response.json();
+        const result = await response.json();
+        console.log("Server response:", JSON.stringify(result, null, 2));
+        return result;
       } else {
         console.error("Failed to check contacts:", response.status);
         return {};

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   StyleSheet,
   View,
@@ -8,6 +8,8 @@ import {
   TextInput,
   ActivityIndicator,
   Alert,
+  ScrollView,
+  Modal,
 } from "react-native";
 import { useUser } from "../components/UserContext";
 import { Ionicons } from "@expo/vector-icons";
@@ -31,28 +33,32 @@ interface ContactMatch {
   last_name?: string;
   phone_number: string;
   is_registered: boolean;
+  has_pending_request?: boolean;
 }
 
 export default function FriendsScreen() {
   const { user, checkContacts } = useUser();
   const [friends, setFriends] = useState<Friend[]>([]);
   const [pendingRequests, setPendingRequests] = useState<Friend[]>([]);
+  const [sentRequests, setSentRequests] = useState<Friend[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingRequests, setLoadingRequests] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<Friend[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [contactMatches, setContactMatches] = useState<ContactMatch[]>([]);
   const [loadingContacts, setLoadingContacts] = useState(false);
+  const [contactMatches, setContactMatches] = useState<ContactMatch[]>([]);
   const [contactsPermissionGranted, setContactsPermissionGranted] = useState<
     boolean | null
   >(null);
+  const [isLocalSearch, setIsLocalSearch] = useState(false);
+  const [showAllContacts, setShowAllContacts] = useState(false);
+  const [modalSearchQuery, setModalSearchQuery] = useState("");
 
   // Fetch user's friends when component mounts
   useEffect(() => {
     if (user) {
       fetchFriends();
       fetchFriendRequests();
+      fetchSentRequests();
       checkContactsPermission();
     }
   }, [user]);
@@ -115,6 +121,27 @@ export default function FriendsScreen() {
     }
   };
 
+  const fetchSentRequests = async () => {
+    if (!user) return;
+
+    try {
+      const response = await fetch(
+        `${API_URL}/users/${user.id}/sent-friend-requests`
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        setSentRequests(data);
+      } else {
+        console.error("Failed to fetch sent requests:", response.status);
+        setSentRequests([]);
+      }
+    } catch (error) {
+      console.error("Error fetching sent requests:", error);
+      setSentRequests([]);
+    }
+  };
+
   const syncContacts = async () => {
     try {
       setLoadingContacts(true);
@@ -148,6 +175,8 @@ export default function FriendsScreen() {
 
     try {
       setLoadingContacts(true);
+
+      // Don't clear existing contacts, just refresh to check for new ones
       await loadContactMatches();
     } catch (error) {
       console.error("Error refreshing contacts:", error);
@@ -164,31 +193,69 @@ export default function FriendsScreen() {
       });
 
       if (data.length > 0) {
+        console.log(`Found ${data.length} contacts on device`);
+
         // Extract phone numbers
         const phoneNumbers = data
           .filter(
             (contact) => contact.phoneNumbers && contact.phoneNumbers.length > 0
           )
-          .map((contact) => contact.phoneNumbers![0].number!);
+          .map((contact) => {
+            const rawNumber = contact.phoneNumbers![0].number!;
+            console.log(`Contact ${contact.name}: ${rawNumber}`);
+            return rawNumber;
+          });
+
+        console.log(`Checking ${phoneNumbers.length} contacts against server`);
 
         // Check which contacts are registered users
         const contactsResult = await checkContacts(phoneNumbers);
+
+        console.log(
+          "Server response:",
+          JSON.stringify(contactsResult, null, 2)
+        );
+
+        // Get current contact IDs for comparison
+        const currentContactIds = contactMatches.map((contact) => contact.id);
 
         // Format results
         const matches: ContactMatch[] = [];
         for (const [phone, userData] of Object.entries(contactsResult)) {
           const userInfo = userData as any;
           if (userInfo.is_registered && userInfo.id !== user?.id) {
+            console.log(
+              `Found registered user: ${userInfo.username} (${phone})`
+            );
+
             // Skip users who are already friends
             if (friends.some((friend) => friend.id === userInfo.id)) {
+              console.log(`Skipping ${userInfo.username} - already a friend`);
               continue;
             }
 
-            // Skip users who have pending friend requests
+            // Skip users who have incoming friend requests
             if (pendingRequests.some((request) => request.id === userInfo.id)) {
+              console.log(
+                `Skipping ${userInfo.username} - has pending request`
+              );
               continue;
             }
 
+            // Check if there's a sent request to this user
+            const hasSentRequest = sentRequests.some(
+              (request) => request.id === userInfo.id
+            );
+
+            // Skip if this contact is already in our current list
+            if (currentContactIds.includes(userInfo.id)) {
+              console.log(
+                `Skipping ${userInfo.username} - already in contacts list`
+              );
+              continue;
+            }
+
+            // Include the user in matches, but mark if they have a pending request
             matches.push({
               id: userInfo.id,
               username: userInfo.username,
@@ -196,21 +263,24 @@ export default function FriendsScreen() {
               last_name: userInfo.last_name,
               phone_number: phone,
               is_registered: true,
+              has_pending_request: hasSentRequest,
             });
           }
         }
 
-        setContactMatches(matches);
-
-        if (matches.length === 0) {
-          Alert.alert(
-            "No New Contacts",
-            "All your contacts who use the app are already your friends or have pending requests."
-          );
-        } else {
+        // Only add new matches to existing contacts
+        if (matches.length > 0) {
+          setContactMatches((prevMatches) => [...prevMatches, ...matches]);
+          console.log(`Found ${matches.length} new contact matches`);
           Alert.alert(
             "Contacts Synced",
             `Found ${matches.length} new contacts using the app!`
+          );
+        } else {
+          console.log("No new contact matches found");
+          Alert.alert(
+            "No New Contacts",
+            "All your contacts who use the app are already your friends, have pending requests, or are already in your contacts list."
           );
         }
       } else {
@@ -222,43 +292,120 @@ export default function FriendsScreen() {
     }
   };
 
-  const searchUsers = async () => {
-    if (!searchQuery.trim()) {
-      setSearchResults([]);
-      return;
-    }
-
+  // Silent version of loadContactMatches that doesn't show alerts
+  const updateContactMatches = async () => {
     try {
-      setSearching(true);
-      const response = await fetch(
-        `${API_URL}/users/search?query=${encodeURIComponent(searchQuery)}`
-      );
+      const { data } = await Contacts.getContactsAsync({
+        fields: [Contacts.Fields.PhoneNumbers, Contacts.Fields.Name],
+      });
 
-      if (response.ok) {
-        const data = await response.json();
-        // Filter out current user, existing friends, and pending requests
-        const filteredResults = data.filter(
-          (result: Friend) =>
-            result.id !== user?.id &&
-            !friends.some((friend) => friend.id === result.id) &&
-            !pendingRequests.some((request) => request.id === result.id)
-        );
-        setSearchResults(filteredResults);
-      } else {
-        console.error("Failed to search users:", response.status);
-        // If the endpoint doesn't exist yet, show a message
-        Alert.alert(
-          "Search not available",
-          "User search functionality is not available yet."
-        );
-        setSearchResults([]);
+      if (data.length > 0) {
+        console.log(`Found ${data.length} contacts on device`);
+
+        // Extract phone numbers
+        const phoneNumbers = data
+          .filter(
+            (contact) => contact.phoneNumbers && contact.phoneNumbers.length > 0
+          )
+          .map((contact) => {
+            const rawNumber = contact.phoneNumbers![0].number!;
+            return rawNumber;
+          });
+
+        // Check which contacts are registered users
+        const contactsResult = await checkContacts(phoneNumbers);
+
+        // Get current contact IDs for comparison
+        const currentContactIds = contactMatches.map((contact) => contact.id);
+
+        // Format results
+        const matches: ContactMatch[] = [];
+        for (const [phone, userData] of Object.entries(contactsResult)) {
+          const userInfo = userData as any;
+          if (userInfo.is_registered && userInfo.id !== user?.id) {
+            // Skip users who are already friends
+            if (friends.some((friend) => friend.id === userInfo.id)) {
+              continue;
+            }
+
+            // Skip users who have incoming friend requests
+            if (pendingRequests.some((request) => request.id === userInfo.id)) {
+              continue;
+            }
+
+            // Check if there's a sent request to this user
+            const hasSentRequest = sentRequests.some(
+              (request) => request.id === userInfo.id
+            );
+
+            // Skip if this contact is already in our current list
+            if (currentContactIds.includes(userInfo.id)) {
+              continue;
+            }
+
+            // Include the user in matches, but mark if they have a pending request
+            matches.push({
+              id: userInfo.id,
+              username: userInfo.username,
+              first_name: userInfo.first_name,
+              last_name: userInfo.last_name,
+              phone_number: phone,
+              is_registered: true,
+              has_pending_request: hasSentRequest,
+            });
+          }
+        }
+
+        // Only add new matches to existing contacts
+        if (matches.length > 0) {
+          setContactMatches((prevMatches) => [...prevMatches, ...matches]);
+        }
       }
     } catch (error) {
-      console.error("Error searching users:", error);
-      setSearchResults([]);
-    } finally {
-      setSearching(false);
+      console.error("Error updating contacts:", error);
     }
+  };
+
+  // Filter function for local search
+  const filterBySearchQuery = (item: Friend | ContactMatch) => {
+    if (!searchQuery.trim()) return true;
+
+    const query = searchQuery.toLowerCase();
+    const fullName =
+      item.first_name && item.last_name
+        ? `${item.first_name} ${item.last_name}`.toLowerCase()
+        : "";
+
+    return (
+      item.username.toLowerCase().includes(query) ||
+      fullName.includes(query) ||
+      (item.first_name && item.first_name.toLowerCase().includes(query)) ||
+      (item.last_name && item.last_name.toLowerCase().includes(query))
+    );
+  };
+
+  // Filtered lists
+  const filteredFriends = useMemo(() => {
+    return friends.filter(filterBySearchQuery);
+  }, [friends, searchQuery]);
+
+  const filteredPendingRequests = useMemo(() => {
+    return pendingRequests.filter(filterBySearchQuery);
+  }, [pendingRequests, searchQuery]);
+
+  const filteredContactMatches = useMemo(() => {
+    return contactMatches.filter(filterBySearchQuery);
+  }, [contactMatches, searchQuery]);
+
+  // Handle search input change
+  const handleSearchChange = (text: string) => {
+    setSearchQuery(text);
+    setIsLocalSearch(!!text.trim());
+  };
+
+  // Search function - just handles local filtering
+  const searchUsers = () => {
+    // Nothing to do here - filtering is handled by the useMemo hooks
   };
 
   const addFriend = async (friendId: number) => {
@@ -274,19 +421,23 @@ export default function FriendsScreen() {
       });
 
       if (response.ok) {
-        // Refresh all lists
-        fetchFriends();
-        fetchFriendRequests();
+        // Add the user to sent requests locally (in case the endpoint doesn't exist yet)
+        const friendToAdd = contactMatches.find((item) => item.id === friendId);
 
-        // Remove from search results
-        setSearchResults(
-          searchResults.filter((result) => result.id !== friendId)
-        );
-        // Remove from contact matches if present
+        if (friendToAdd) {
+          setSentRequests((prev) => [...prev, friendToAdd as Friend]);
+        }
+
+        // Update contact matches to show pending state
         setContactMatches(
-          contactMatches.filter((match) => match.id !== friendId)
+          contactMatches.map((match) =>
+            match.id === friendId
+              ? { ...match, has_pending_request: true }
+              : match
+          )
         );
-        Alert.alert("Success", "Friend added successfully!");
+
+        Alert.alert("Friend Request Sent", "Friend request sent successfully!");
       } else {
         const errorData = await response.text();
         console.error("Failed to add friend:", response.status, errorData);
@@ -300,6 +451,7 @@ export default function FriendsScreen() {
           // Refresh lists to make sure UI is in sync
           fetchFriends();
           fetchFriendRequests();
+          fetchSentRequests();
         } else if (errorData.includes("User not found")) {
           Alert.alert(
             "User Not Found",
@@ -335,9 +487,9 @@ export default function FriendsScreen() {
         fetchFriendRequests();
         fetchFriends();
 
-        // Refresh contacts to filter out the newly added friend
+        // Silently update contacts without alerts
         if (contactsPermissionGranted) {
-          loadContactMatches();
+          updateContactMatches();
         }
 
         Alert.alert("Success", "Friend request accepted!");
@@ -377,9 +529,9 @@ export default function FriendsScreen() {
       if (response.ok) {
         fetchFriendRequests();
 
-        // Refresh contacts to include the rejected friend
+        // Silently update contacts without alerts
         if (contactsPermissionGranted) {
-          loadContactMatches();
+          updateContactMatches();
         }
 
         Alert.alert("Success", "Friend request rejected.");
@@ -401,8 +553,9 @@ export default function FriendsScreen() {
     }
   };
 
-  const renderFriendItem = ({ item }: { item: Friend }) => (
-    <View style={styles.friendItem}>
+  // Render a friend item without the FlatList
+  const renderFriendItemInline = (item: Friend, index: number) => (
+    <View style={styles.friendItem} key={`inline-friend-${item.id}`}>
       <View style={styles.friendAvatar}>
         <Text style={styles.avatarText}>
           {item.first_name?.[0] || item.username[0].toUpperCase()}
@@ -416,30 +569,6 @@ export default function FriendsScreen() {
         </Text>
         <Text style={styles.friendUsername}>@{item.username}</Text>
       </View>
-    </View>
-  );
-
-  const renderSearchResultItem = ({ item }: { item: Friend }) => (
-    <View style={styles.searchResultItem}>
-      <View style={styles.friendAvatar}>
-        <Text style={styles.avatarText}>
-          {item.first_name?.[0] || item.username[0].toUpperCase()}
-        </Text>
-      </View>
-      <View style={styles.friendInfo}>
-        <Text style={styles.friendName}>
-          {item.first_name && item.last_name
-            ? `${item.first_name} ${item.last_name}`
-            : item.username}
-        </Text>
-        <Text style={styles.friendUsername}>@{item.username}</Text>
-      </View>
-      <TouchableOpacity
-        style={styles.addButton}
-        onPress={() => addFriend(item.id)}
-      >
-        <Ionicons name="add-circle" size={24} color="#007AFF" />
-      </TouchableOpacity>
     </View>
   );
 
@@ -458,12 +587,18 @@ export default function FriendsScreen() {
         </Text>
         <Text style={styles.friendUsername}>@{item.username}</Text>
       </View>
-      <TouchableOpacity
-        style={styles.addButton}
-        onPress={() => addFriend(item.id)}
-      >
-        <Ionicons name="add-circle" size={24} color="#007AFF" />
-      </TouchableOpacity>
+      {item.has_pending_request ? (
+        <View style={styles.pendingButton}>
+          <Ionicons name="ellipsis-horizontal" size={24} color="#999" />
+        </View>
+      ) : (
+        <TouchableOpacity
+          style={styles.addButton}
+          onPress={() => addFriend(item.id)}
+        >
+          <Ionicons name="add-circle" size={24} color="#007AFF" />
+        </TouchableOpacity>
+      )}
     </View>
   );
 
@@ -504,7 +639,10 @@ export default function FriendsScreen() {
   );
 
   return (
-    <View style={styles.container}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.contentContainer}
+    >
       <Text style={styles.title}>Friends</Text>
 
       <View style={styles.actionsContainer}>
@@ -513,9 +651,17 @@ export default function FriendsScreen() {
             style={styles.searchInput}
             placeholder="Search for users..."
             value={searchQuery}
-            onChangeText={setSearchQuery}
+            onChangeText={handleSearchChange}
             onSubmitEditing={searchUsers}
           />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity
+              style={styles.clearButton}
+              onPress={() => handleSearchChange("")}
+            >
+              <Ionicons name="close-circle" size={18} color="#999" />
+            </TouchableOpacity>
+          )}
           <TouchableOpacity style={styles.searchButton} onPress={searchUsers}>
             <Ionicons name="search" size={20} color="#fff" />
           </TouchableOpacity>
@@ -566,57 +712,77 @@ export default function FriendsScreen() {
         )}
       </View>
 
-      {searching && (
-        <ActivityIndicator style={styles.loader} size="small" color="#007AFF" />
-      )}
+      {contactMatches.length > 0 &&
+        (!isLocalSearch || filteredContactMatches.length > 0) && (
+          <View style={styles.contactsContainer}>
+            <Text style={styles.sectionTitle}>From Your Contacts</Text>
+            <View>
+              {(isLocalSearch ? filteredContactMatches : contactMatches)
+                .slice(0, 3) // Limit to 3 profiles
+                .map((item) => (
+                  <View key={`contact-${item.id}`}>
+                    {renderContactMatch({ item })}
+                  </View>
+                ))}
+              {(isLocalSearch ? filteredContactMatches : contactMatches)
+                .length > 3 && (
+                <TouchableOpacity
+                  style={styles.showMoreButton}
+                  onPress={() => {
+                    setModalSearchQuery("");
+                    setShowAllContacts(true);
+                  }}
+                >
+                  <Text style={styles.showMoreText}>
+                    Show{" "}
+                    {(isLocalSearch ? filteredContactMatches : contactMatches)
+                      .length - 3}{" "}
+                    more
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        )}
 
-      {searchResults.length > 0 && (
-        <View style={styles.searchResultsContainer}>
-          <Text style={styles.sectionTitle}>Search Results</Text>
-          <FlatList
-            data={searchResults}
-            renderItem={renderSearchResultItem}
-            keyExtractor={(item) => `search-${item.id}`}
-            style={styles.searchResultsList}
-          />
-        </View>
-      )}
-
-      {contactMatches.length > 0 && (
-        <View style={styles.contactsContainer}>
-          <Text style={styles.sectionTitle}>From Your Contacts</Text>
-          <FlatList
-            data={contactMatches}
-            renderItem={renderContactMatch}
-            keyExtractor={(item) => `contact-${item.id}`}
-            style={styles.contactsList}
-          />
-        </View>
-      )}
-
-      {pendingRequests.length > 0 && (
-        <View style={styles.requestsContainer}>
-          <Text style={styles.sectionTitle}>Friend Requests</Text>
-          <FlatList
-            data={pendingRequests}
-            renderItem={renderFriendRequestItem}
-            keyExtractor={(item) => `request-${item.id}`}
-            style={styles.requestsList}
-          />
-        </View>
-      )}
+      {pendingRequests.length > 0 &&
+        (!isLocalSearch || filteredPendingRequests.length > 0) && (
+          <View style={styles.requestsContainer}>
+            <Text style={styles.sectionTitle}>Friend Requests</Text>
+            <View>
+              {(isLocalSearch ? filteredPendingRequests : pendingRequests).map(
+                (item) => (
+                  <View key={`request-${item.id}`}>
+                    {renderFriendRequestItem({ item })}
+                  </View>
+                )
+              )}
+            </View>
+          </View>
+        )}
 
       <Text style={styles.sectionTitle}>My Friends</Text>
 
       {loading ? (
         <ActivityIndicator style={styles.loader} size="large" color="#007AFF" />
       ) : friends.length > 0 ? (
-        <FlatList
-          data={friends}
-          renderItem={renderFriendItem}
-          keyExtractor={(item) => `friend-${item.id}`}
-          style={styles.friendsList}
-        />
+        isLocalSearch && filteredFriends.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Ionicons name="search" size={60} color="#ccc" />
+            <Text style={styles.emptyStateText}>
+              No friends match your search
+            </Text>
+            <Text style={styles.emptyStateSubtext}>
+              Try a different search term
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.friendsListContainer}>
+            {(isLocalSearch ? filteredFriends : friends).map(
+              renderFriendItemInline
+            )}
+          </View>
+        )
       ) : (
         <View style={styles.emptyState}>
           <Ionicons name="people-outline" size={60} color="#ccc" />
@@ -628,7 +794,82 @@ export default function FriendsScreen() {
           </Text>
         </View>
       )}
-    </View>
+
+      {/* Modal for showing all contacts */}
+      <Modal
+        animationType="slide"
+        transparent={false}
+        visible={showAllContacts}
+        onRequestClose={() => {
+          setModalSearchQuery("");
+          setShowAllContacts(false);
+        }}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>All Contacts</Text>
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={() => {
+                setModalSearchQuery("");
+                setShowAllContacts(false);
+              }}
+            >
+              <Ionicons name="close" size={28} color="#007AFF" />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.modalSearchContainer}>
+            <TextInput
+              style={styles.modalSearchInput}
+              placeholder="Search contacts..."
+              value={modalSearchQuery}
+              onChangeText={setModalSearchQuery}
+            />
+            {modalSearchQuery.length > 0 && (
+              <TouchableOpacity
+                style={styles.modalClearButton}
+                onPress={() => setModalSearchQuery("")}
+              >
+                <Ionicons name="close-circle" size={18} color="#999" />
+              </TouchableOpacity>
+            )}
+          </View>
+
+          <ScrollView style={styles.modalContent}>
+            {contactMatches
+              .filter((contact) => {
+                if (!modalSearchQuery) return true;
+
+                const query = modalSearchQuery.toLowerCase();
+                const fullName =
+                  contact.first_name && contact.last_name
+                    ? `${contact.first_name} ${contact.last_name}`.toLowerCase()
+                    : "";
+
+                return (
+                  contact.username.toLowerCase().includes(query) ||
+                  fullName.includes(query) ||
+                  (contact.first_name &&
+                    contact.first_name.toLowerCase().includes(query)) ||
+                  (contact.last_name &&
+                    contact.last_name.toLowerCase().includes(query))
+                );
+              })
+              .map((item) => (
+                <View key={`modal-contact-${item.id}`}>
+                  {renderContactMatch({ item })}
+                </View>
+              ))}
+            {contactMatches.length === 0 && (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyStateText}>No contacts found</Text>
+              </View>
+            )}
+          </ScrollView>
+        </View>
+      </Modal>
+    </ScrollView>
   );
 }
 
@@ -636,8 +877,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#fff",
+  },
+  contentContainer: {
     padding: 20,
     paddingTop: 60,
+    paddingBottom: 40,
   },
   title: {
     fontSize: 32,
@@ -648,14 +892,16 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     fontWeight: "600",
-    marginVertical: 10,
+    marginTop: 5,
+    marginBottom: 8,
   },
   actionsContainer: {
-    marginBottom: 20,
+    marginBottom: 15,
   },
   searchContainer: {
     flexDirection: "row",
     marginBottom: 10,
+    alignItems: "center",
   },
   searchInput: {
     flex: 1,
@@ -664,6 +910,7 @@ const styles = StyleSheet.create({
     borderColor: "#ddd",
     borderRadius: 8,
     paddingHorizontal: 15,
+    paddingRight: 35,
     backgroundColor: "white",
   },
   searchButton: {
@@ -701,8 +948,8 @@ const styles = StyleSheet.create({
   syncIcon: {
     marginRight: 8,
   },
-  friendsList: {
-    flex: 1,
+  friendsListContainer: {
+    width: "100%",
   },
   friendItem: {
     flexDirection: "row",
@@ -774,10 +1021,10 @@ const styles = StyleSheet.create({
     padding: 5,
   },
   contactsContainer: {
-    marginBottom: 20,
+    marginBottom: 15,
   },
   contactsList: {
-    maxHeight: 200,
+    backgroundColor: "#fff",
   },
   loadingContactsContainer: {
     flexDirection: "row",
@@ -790,10 +1037,10 @@ const styles = StyleSheet.create({
     color: "#666",
   },
   requestsContainer: {
-    marginBottom: 20,
+    marginBottom: 15,
   },
   requestsList: {
-    maxHeight: 200,
+    backgroundColor: "#fff",
   },
   friendRequestItem: {
     flexDirection: "row",
@@ -812,5 +1059,73 @@ const styles = StyleSheet.create({
   },
   rejectButton: {
     padding: 5,
+  },
+  pendingButton: {
+    padding: 5,
+    opacity: 0.6,
+  },
+  clearButton: {
+    position: "absolute",
+    right: 65,
+    padding: 5,
+    zIndex: 1,
+  },
+  showMoreButton: {
+    padding: 10,
+    backgroundColor: "#f0f0f0",
+    borderRadius: 8,
+    alignItems: "center",
+    marginTop: 5,
+  },
+  showMoreText: {
+    color: "#007AFF",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: "#fff",
+    paddingTop: 65,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingBottom: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: "#007AFF",
+  },
+  closeButton: {
+    padding: 5,
+  },
+  modalSearchContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 15,
+  },
+  modalSearchInput: {
+    flex: 1,
+    height: 45,
+    borderWidth: 1,
+    borderColor: "#ddd",
+    borderRadius: 8,
+    paddingHorizontal: 15,
+    paddingRight: 40,
+  },
+  modalClearButton: {
+    position: "absolute",
+    right: 30,
+    padding: 5,
+  },
+  modalContent: {
+    padding: 20,
+    paddingTop: 0,
   },
 });

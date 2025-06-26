@@ -18,6 +18,7 @@ class User(Base):
     job = Column(String)
     # links: JSON with keys: 'instagram', 'snapchat', 'spotify', 'linkedin', 'github'
     links = Column(JSON, default=dict)
+    profile_picture = Column(String, nullable=True)  # URL or base64 string for profile picture
     latitude = Column(Float, nullable=True)  # User's last known latitude
     longitude = Column(Float, nullable=True)  # User's last known longitude
     last_location_update = Column(DateTime(timezone=True), nullable=True)  # When location was last updated

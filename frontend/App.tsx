@@ -9,6 +9,7 @@ import FriendsScreen from "./screens/FriendsScreen";
 import LandingScreen from "./screens/LandingScreen";
 import SignInScreen from "./screens/SignInScreen";
 import SignUpScreen from "./screens/SignUpScreen";
+import OnboardingScreen from "./screens/OnboardingScreen";
 import { UserProvider } from "./components/UserContext";
 
 const Tab = createBottomTabNavigator();
@@ -54,6 +55,7 @@ export default function App() {
           <Stack.Screen name="Landing" component={LandingScreen} />
           <Stack.Screen name="SignIn" component={SignInScreen} />
           <Stack.Screen name="SignUp" component={SignUpScreen} />
+          <Stack.Screen name="Onboarding" component={OnboardingScreen} />
           <Stack.Screen name="Main" component={MainTabs} />
         </Stack.Navigator>
       </NavigationContainer>

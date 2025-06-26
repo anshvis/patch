@@ -13,6 +13,7 @@ import {
   Image,
 } from "react-native";
 import { useUser } from "../components/UserContext";
+import { useNavigation } from "@react-navigation/native";
 import React, { useState, useEffect, useRef } from "react";
 import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
@@ -45,10 +46,10 @@ interface EditData {
   profile_picture?: string;
 }
 
-export default function ProfileScreen() {
+export default function OnboardingScreen() {
+  const navigation = useNavigation();
   const { user, setUser } = useUser();
   const [editData, setEditData] = useState<EditData | null>(null);
-  const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(false);
   const [interestInput, setInterestInput] = useState("");
   const interestInputRef = useRef<TextInput>(null);
@@ -78,7 +79,6 @@ export default function ProfileScreen() {
         profile_picture: user.profile_picture || "",
       });
       setProfileImage(user.profile_picture || null);
-      setIsEditing(false);
       setInterestInput("");
     }
   }, [user]);
@@ -140,7 +140,6 @@ export default function ProfileScreen() {
             profile_picture: imageUri,
           });
         }
-        setIsEditing(true);
       }
     } catch (error) {
       console.error("Error picking image:", error);
@@ -148,43 +147,21 @@ export default function ProfileScreen() {
     }
   };
 
-  // Check if any field has changed
-  const isChanged = () => {
-    if (!user) return false;
-    const interestsArr = Array.isArray(user.interests) ? user.interests : [];
-    return (
-      editData.username !== user.username ||
-      editData.first_name !== (user.first_name || "") ||
-      editData.last_name !== (user.last_name || "") ||
-      editData.hometown !== (user.hometown || "") ||
-      editData.school !== (user.school || "") ||
-      editData.job !== (user.job || "") ||
-      JSON.stringify(editData.interests) !== JSON.stringify(interestsArr) ||
-      SOCIAL_KEYS.some(
-        (k) => (editData.links[k] || "") !== (user.links?.[k] || "")
-      ) ||
-      editData.profile_picture !== user.profile_picture
-    );
-  };
-
   const handleChange = (
     field: keyof Omit<EditData, "interests" | "links" | "profile_picture">,
     value: string
   ) => {
     setEditData({ ...editData, [field]: value });
-    setIsEditing(true);
   };
 
   const handleSocialChange = (key: SocialKey, value: string) => {
     setEditData({ ...editData, links: { ...editData.links, [key]: value } });
-    setIsEditing(true);
   };
 
   const handleAddInterest = () => {
     const trimmed = interestInput.trim();
     if (trimmed && !editData.interests.includes(trimmed)) {
       setEditData({ ...editData, interests: [...editData.interests, trimmed] });
-      setIsEditing(true);
     }
     setInterestInput("");
     Keyboard.dismiss();
@@ -195,30 +172,11 @@ export default function ProfileScreen() {
       ...editData,
       interests: editData.interests.filter((i) => i !== interest),
     });
-    setIsEditing(true);
   };
 
-  const handleCancel = () => {
-    setEditData({
-      username: user.username || "",
-      first_name: user.first_name || "",
-      last_name: user.last_name || "",
-      hometown: user.hometown || "",
-      school: user.school || "",
-      job: user.job || "",
-      interests: Array.isArray(user.interests) ? user.interests : [],
-      links: {
-        instagram: user.links?.instagram || "",
-        snapchat: user.links?.snapchat || "",
-        spotify: user.links?.spotify || "",
-        linkedin: user.links?.linkedin || "",
-        github: user.links?.github || "",
-      },
-      profile_picture: user.profile_picture || "",
-    });
-    setProfileImage(user.profile_picture || null);
-    setIsEditing(false);
-    setInterestInput("");
+  const handleSkip = () => {
+    // Navigate to the main app
+    navigation.navigate("Main" as never);
   };
 
   const handleSave = async () => {
@@ -261,8 +219,9 @@ export default function ProfileScreen() {
       }
       const updatedUser = await response.json();
       setUser(updatedUser);
-      setIsEditing(false);
-      Alert.alert("Success", "Profile updated successfully");
+
+      // Navigate to the main app
+      navigation.navigate("Main" as never);
     } catch (err: any) {
       Alert.alert("Error", err.message || "Failed to update profile");
     } finally {
@@ -273,7 +232,6 @@ export default function ProfileScreen() {
   const handleAddSocial = (key: SocialKey) => {
     setAddedSocials([...addedSocials, key]);
     setShowSocialPicker(false);
-    setIsEditing(true);
   };
 
   const handleRemoveSocial = (key: SocialKey) => {
@@ -282,7 +240,6 @@ export default function ProfileScreen() {
       ...editData,
       links: { ...editData.links, [key]: "" },
     });
-    setIsEditing(true);
   };
 
   return (
@@ -296,10 +253,10 @@ export default function ProfileScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.profileCard}>
-          <Text style={styles.title}>
-            {editData.first_name
-              ? `${editData.first_name}'s Profile`
-              : "Profile"}
+          <Text style={styles.title}>Tell us about you!</Text>
+          <Text style={styles.subtitle}>
+            Help others get to know you better. You can always update this
+            information later.
           </Text>
 
           {/* Profile Picture Section */}
@@ -340,6 +297,7 @@ export default function ProfileScreen() {
               style={styles.input}
               value={editData.hometown}
               onChangeText={(v) => handleChange("hometown", v)}
+              placeholder="Where are you from?"
             />
           </View>
           <View style={styles.section}>
@@ -348,6 +306,7 @@ export default function ProfileScreen() {
               style={styles.input}
               value={editData.school}
               onChangeText={(v) => handleChange("school", v)}
+              placeholder="Where do/did you go to school?"
             />
           </View>
           <View style={styles.section}>
@@ -356,6 +315,7 @@ export default function ProfileScreen() {
               style={styles.input}
               value={editData.job}
               onChangeText={(v) => handleChange("job", v)}
+              placeholder="What do you do?"
             />
           </View>
           <View style={styles.section}>
@@ -454,30 +414,29 @@ export default function ProfileScreen() {
               )
             )}
           </View>
-          {isChanged() && (
-            <View style={styles.buttonRow}>
-              <TouchableOpacity
-                style={[
-                  styles.button,
-                  styles.saveButton,
-                  loading && styles.disabledButton,
-                ]}
-                onPress={handleSave}
-                disabled={loading}
-              >
-                <Text style={styles.buttonText}>
-                  {loading ? "Saving..." : "Save"}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.button, styles.cancelButton]}
-                onPress={handleCancel}
-                disabled={loading}
-              >
-                <Text style={styles.buttonText}>Cancel</Text>
-              </TouchableOpacity>
-            </View>
-          )}
+
+          <View style={styles.buttonRow}>
+            <TouchableOpacity
+              style={[
+                styles.button,
+                styles.saveButton,
+                loading && styles.disabledButton,
+              ]}
+              onPress={handleSave}
+              disabled={loading}
+            >
+              <Text style={styles.buttonText}>
+                {loading ? "Saving..." : "Continue"}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.button, styles.skipButton]}
+              onPress={handleSkip}
+              disabled={loading}
+            >
+              <Text style={styles.skipButtonText}>Skip</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -513,53 +472,14 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: "bold",
     color: "#007AFF",
-    marginBottom: 18,
+    marginBottom: 12,
     textAlign: "left",
   },
-  profilePictureSection: {
-    alignItems: "center",
-    marginBottom: 24,
-    width: "100%",
-  },
-  profileImageContainer: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: "#f0f4f8",
-    justifyContent: "center",
-    alignItems: "center",
-    position: "relative",
-    marginBottom: 8,
-    borderWidth: 2,
-    borderColor: "#e0e0e0",
-    overflow: "hidden",
-  },
-  profileImage: {
-    width: "100%",
-    height: "100%",
-    borderRadius: 60,
-  },
-  profilePlaceholder: {
-    width: "100%",
-    height: "100%",
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#007AFF",
-  },
-  editIconContainer: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    top: 0,
-    backgroundColor: "transparent",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  profilePictureText: {
+  subtitle: {
     fontSize: 16,
-    color: "#007AFF",
-    marginTop: 8,
+    color: "#666",
+    marginBottom: 24,
+    lineHeight: 22,
   },
   section: {
     marginBottom: 16,
@@ -645,28 +565,37 @@ const styles = StyleSheet.create({
   },
   buttonRow: {
     flexDirection: "row",
-    justifyContent: "flex-end",
-    marginTop: 18,
-    gap: 12,
+    justifyContent: "space-between",
+    marginTop: 24,
+    width: "100%",
   },
   button: {
-    paddingVertical: 10,
-    paddingHorizontal: 22,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
     borderRadius: 8,
     alignItems: "center",
-    marginLeft: 8,
+    justifyContent: "center",
+    flex: 1,
   },
   saveButton: {
     backgroundColor: "#007AFF",
+    marginRight: 8,
   },
-  cancelButton: {
-    backgroundColor: "#aaa",
+  skipButton: {
+    backgroundColor: "transparent",
+    borderWidth: 1,
+    borderColor: "#007AFF",
   },
   disabledButton: {
     opacity: 0.6,
   },
   buttonText: {
     color: "#fff",
+    fontWeight: "600",
+    fontSize: 16,
+  },
+  skipButtonText: {
+    color: "#007AFF",
     fontWeight: "600",
     fontSize: 16,
   },
@@ -722,6 +651,51 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     alignItems: "center",
     justifyContent: "center",
+  },
+  profilePictureSection: {
+    alignItems: "center",
+    marginBottom: 24,
+    width: "100%",
+  },
+  profileImageContainer: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: "#f0f4f8",
+    justifyContent: "center",
+    alignItems: "center",
+    position: "relative",
+    marginBottom: 8,
+    borderWidth: 2,
+    borderColor: "#e0e0e0",
+    overflow: "hidden",
+  },
+  profileImage: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 60,
+  },
+  profilePlaceholder: {
+    width: "100%",
+    height: "100%",
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#007AFF",
+  },
+  editIconContainer: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    top: 0,
+    backgroundColor: "transparent",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  profilePictureText: {
+    fontSize: 16,
+    color: "#007AFF",
+    marginTop: 8,
   },
   initialsText: {
     fontSize: 40,
