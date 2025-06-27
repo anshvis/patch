@@ -21,6 +21,7 @@ export interface User {
   longitude?: number;
   last_location_update?: string;
   profile_picture?: string;
+  discovery_radius?: number;
 }
 
 export interface FriendWithLocation {

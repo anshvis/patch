@@ -18,6 +18,7 @@ class UserBase(BaseModel):
     # links: Only these keys allowed: instagram, snapchat, spotify, linkedin, github
     links: Dict[str, str] = {}
     profile_picture: Optional[str] = None  # URL or base64 string for profile picture
+    discovery_radius: Optional[float] = 10  # Default discovery radius of 10 miles
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     
@@ -44,6 +45,7 @@ class UserUpdate(BaseModel):
     # Only these keys allowed in links
     links: Optional[Dict[str, str]] = None
     profile_picture: Optional[str] = None  # URL or base64 string for profile picture
+    discovery_radius: Optional[float] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     

@@ -19,6 +19,7 @@ class User(Base):
     # links: JSON with keys: 'instagram', 'snapchat', 'spotify', 'linkedin', 'github'
     links = Column(JSON, default=dict)
     profile_picture = Column(String, nullable=True)  # URL or base64 string for profile picture
+    discovery_radius = Column(Float, default=10)  # Default discovery radius of 10 miles
     latitude = Column(Float, nullable=True)  # User's last known latitude
     longitude = Column(Float, nullable=True)  # User's last known longitude
     last_location_update = Column(DateTime(timezone=True), nullable=True)  # When location was last updated

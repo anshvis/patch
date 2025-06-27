@@ -16,6 +16,7 @@ import { useUser } from "../components/UserContext";
 import React, { useState, useEffect, useRef } from "react";
 import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
+import Slider from "@react-native-community/slider";
 
 const SOCIAL_KEYS = [
   "instagram",
@@ -43,7 +44,35 @@ interface EditData {
   interests: string[];
   links: { [K in SocialKey]: string };
   profile_picture?: string;
+  discovery_radius: number;
 }
+
+// Function to validate image URL
+const validateImageUrl = (url: string | null): boolean => {
+  if (!url) {
+    console.log("Image URL is null or empty");
+    return false;
+  }
+
+  // Check if it's a valid URL format
+  try {
+    new URL(url);
+    console.log("Image URL is valid format:", url);
+    return true;
+  } catch (e) {
+    // If it's not a valid URL, it might be a local file path
+    if (
+      url.startsWith("file://") ||
+      url.startsWith("/") ||
+      url.includes("assets")
+    ) {
+      console.log("Image URL appears to be a local file:", url);
+      return true;
+    }
+    console.error("Invalid image URL format:", url);
+    return false;
+  }
+};
 
 export default function ProfileScreen() {
   const { user, setUser } = useUser();
@@ -58,6 +87,13 @@ export default function ProfileScreen() {
 
   useEffect(() => {
     if (user) {
+      console.log("ProfileScreen: Loading user data", user);
+      console.log("Profile picture URL:", user.profile_picture);
+
+      if (user.profile_picture) {
+        validateImageUrl(user.profile_picture);
+      }
+
       const presentSocials = SOCIAL_KEYS.filter((k) => user.links?.[k]);
       setAddedSocials(presentSocials);
       setEditData({
@@ -76,8 +112,20 @@ export default function ProfileScreen() {
           github: user.links?.github || "",
         },
         profile_picture: user.profile_picture || "",
+        discovery_radius: user.discovery_radius || 10,
       });
-      setProfileImage(user.profile_picture || null);
+
+      if (user.profile_picture) {
+        console.log(
+          "Setting profile image from user data:",
+          user.profile_picture
+        );
+        setProfileImage(user.profile_picture);
+      } else {
+        console.log("No profile picture found in user data");
+        setProfileImage(null);
+      }
+
       setIsEditing(false);
       setInterestInput("");
     }
@@ -131,16 +179,26 @@ export default function ProfileScreen() {
 
       if (!result.canceled) {
         const imageUri = result.assets[0].uri;
-        setProfileImage(imageUri);
+        console.log("Selected image URI:", imageUri);
 
-        // Update editData with the new profile picture
-        if (editData) {
-          setEditData({
-            ...editData,
-            profile_picture: imageUri,
-          });
+        // Validate the image URI
+        if (validateImageUrl(imageUri)) {
+          setProfileImage(imageUri);
+
+          // Update editData with the new profile picture
+          if (editData) {
+            setEditData({
+              ...editData,
+              profile_picture: imageUri,
+            });
+          }
+          setIsEditing(true);
+        } else {
+          Alert.alert(
+            "Error",
+            "Invalid image format. Please try another image."
+          );
         }
-        setIsEditing(true);
       }
     } catch (error) {
       console.error("Error picking image:", error);
@@ -152,6 +210,9 @@ export default function ProfileScreen() {
   const isChanged = () => {
     if (!user) return false;
     const interestsArr = Array.isArray(user.interests) ? user.interests : [];
+    const userDiscoveryRadius =
+      user.discovery_radius !== undefined ? user.discovery_radius : 10;
+
     return (
       editData.username !== user.username ||
       editData.first_name !== (user.first_name || "") ||
@@ -163,7 +224,8 @@ export default function ProfileScreen() {
       SOCIAL_KEYS.some(
         (k) => (editData.links[k] || "") !== (user.links?.[k] || "")
       ) ||
-      editData.profile_picture !== user.profile_picture
+      editData.profile_picture !== user.profile_picture ||
+      editData.discovery_radius !== userDiscoveryRadius
     );
   };
 
@@ -199,6 +261,9 @@ export default function ProfileScreen() {
   };
 
   const handleCancel = () => {
+    console.log("Cancelling edits, restoring original profile data");
+    console.log("Original profile picture:", user.profile_picture);
+
     setEditData({
       username: user.username || "",
       first_name: user.first_name || "",
@@ -215,10 +280,49 @@ export default function ProfileScreen() {
         github: user.links?.github || "",
       },
       profile_picture: user.profile_picture || "",
+      discovery_radius: user.discovery_radius || 10,
     });
-    setProfileImage(user.profile_picture || null);
+
+    if (user.profile_picture) {
+      console.log("Restoring profile image to:", user.profile_picture);
+      setProfileImage(user.profile_picture);
+    } else {
+      console.log("Clearing profile image");
+      setProfileImage(null);
+    }
+
     setIsEditing(false);
     setInterestInput("");
+  };
+
+  // Function to prepare profile picture for saving
+  const prepareProfilePicture = (imageUri: string | null): string | null => {
+    if (!imageUri) return null;
+
+    // Log the image URI for debugging
+    console.log("Preparing profile picture:", imageUri);
+
+    // If it's already a valid URL, return it as is
+    if (imageUri.startsWith("http://") || imageUri.startsWith("https://")) {
+      console.log("Image is already a valid URL");
+      return imageUri;
+    }
+
+    // If it's a file URI, ensure it's properly formatted
+    if (imageUri.startsWith("file://")) {
+      console.log("Image is a file URI");
+      return imageUri;
+    }
+
+    // If it's a local path without the file:// prefix, add it
+    if (imageUri.startsWith("/")) {
+      const formattedUri = `file://${imageUri}`;
+      console.log("Formatted local path to:", formattedUri);
+      return formattedUri;
+    }
+
+    // For other formats (like data URLs), return as is
+    return imageUri;
   };
 
   const handleSave = async () => {
@@ -238,6 +342,11 @@ export default function ProfileScreen() {
         }
       }
     });
+
+    // Prepare the profile picture for saving
+    const formattedProfileImage = prepareProfilePicture(profileImage);
+    console.log("Saving profile with image:", formattedProfileImage);
+
     const payload = {
       username: editData.username,
       first_name: editData.first_name,
@@ -247,23 +356,35 @@ export default function ProfileScreen() {
       job: editData.job,
       interests: editData.interests,
       links,
-      profile_picture: profileImage,
+      profile_picture: formattedProfileImage,
+      discovery_radius: editData.discovery_radius,
     };
+
     try {
+      console.log(
+        "Sending update request with payload:",
+        JSON.stringify(payload)
+      );
       const response = await fetch(`http://10.0.0.64:8000/users/${user.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => null);
         throw new Error(errorData?.detail || "Failed to update profile");
       }
+
       const updatedUser = await response.json();
+      console.log("Profile updated successfully:", updatedUser);
+      console.log("Updated profile picture:", updatedUser.profile_picture);
+
       setUser(updatedUser);
       setIsEditing(false);
       Alert.alert("Success", "Profile updated successfully");
     } catch (err: any) {
+      console.error("Error updating profile:", err);
       Alert.alert("Error", err.message || "Failed to update profile");
     } finally {
       setLoading(false);
@@ -310,10 +431,23 @@ export default function ProfileScreen() {
           >
             <View style={styles.profileImageContainer}>
               {profileImage ? (
-                <Image
-                  source={{ uri: profileImage }}
-                  style={styles.profileImage}
-                />
+                <View style={styles.imageWrapper}>
+                  <Image
+                    source={{ uri: profileImage }}
+                    style={styles.profileImage}
+                    onLoad={() =>
+                      console.log("Profile image loaded successfully")
+                    }
+                    onError={(error) => {
+                      console.error(
+                        "Error loading profile image:",
+                        error.nativeEvent.error
+                      );
+                      // If the image fails to load, show the initials instead
+                      setProfileImage(null);
+                    }}
+                  />
+                </View>
               ) : (
                 <View style={styles.profilePlaceholder}>
                   <Text style={styles.initialsText}>
@@ -357,6 +491,32 @@ export default function ProfileScreen() {
               value={editData.job}
               onChangeText={(v) => handleChange("job", v)}
             />
+          </View>
+          <View style={styles.section}>
+            <Text style={styles.label}>Discovery Radius</Text>
+            <View style={styles.radiusContainer}>
+              <Text style={styles.radiusValue}>
+                {Math.round(editData.discovery_radius)} miles
+              </Text>
+              <Slider
+                style={styles.radiusSlider}
+                minimumValue={0}
+                maximumValue={50}
+                step={1}
+                value={editData.discovery_radius}
+                onValueChange={(value) => {
+                  setEditData({ ...editData, discovery_radius: value });
+                  setIsEditing(true);
+                }}
+                minimumTrackTintColor="#007AFF"
+                maximumTrackTintColor="#d3d3d3"
+                thumbTintColor="#007AFF"
+              />
+              <View style={styles.radiusLabels}>
+                <Text style={styles.radiusLabelText}>0 mi</Text>
+                <Text style={styles.radiusLabelText}>50 mi</Text>
+              </View>
+            </View>
           </View>
           <View style={styles.section}>
             <Text style={styles.label}>Interests</Text>
@@ -533,6 +693,12 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "#e0e0e0",
     overflow: "hidden",
+  },
+  imageWrapper: {
+    width: "100%",
+    height: "100%",
+    justifyContent: "center",
+    alignItems: "center",
   },
   profileImage: {
     width: "100%",
@@ -727,5 +893,37 @@ const styles = StyleSheet.create({
     fontSize: 40,
     fontWeight: "bold",
     color: "#fff",
+  },
+  radiusContainer: {
+    width: "100%",
+    marginVertical: 10,
+  },
+  radiusValue: {
+    fontSize: 17,
+    color: "#222",
+    fontWeight: "500",
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  radiusSlider: {
+    width: "100%",
+    height: 40,
+  },
+  radiusLabels: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    width: "100%",
+    paddingHorizontal: 5,
+    marginTop: 5,
+  },
+  radiusLabelText: {
+    fontSize: 12,
+    color: "#888",
+  },
+  radiusDescription: {
+    fontSize: 14,
+    color: "#888",
+    marginTop: 4,
+    textAlign: "center",
   },
 });

@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, {
+  useState,
+  useEffect,
+  useMemo,
+  useCallback,
+  useRef,
+} from "react";
 import {
   StyleSheet,
   View,
@@ -14,6 +20,7 @@ import {
 import { useUser } from "../components/UserContext";
 import { Ionicons } from "@expo/vector-icons";
 import * as Contacts from "expo-contacts";
+import { useNavigation, useIsFocused } from "@react-navigation/native";
 
 // API base URL - must match the one used in other components
 const API_URL = "http://10.0.0.64:8000";
@@ -33,7 +40,6 @@ interface ContactMatch {
   last_name?: string;
   phone_number: string;
   is_registered: boolean;
-  has_pending_request?: boolean;
 }
 
 export default function FriendsScreen() {
@@ -52,6 +58,8 @@ export default function FriendsScreen() {
   const [isLocalSearch, setIsLocalSearch] = useState(false);
   const [showAllContacts, setShowAllContacts] = useState(false);
   const [modalSearchQuery, setModalSearchQuery] = useState("");
+  const isFirstFocus = useRef(true);
+  const isFocused = useIsFocused();
 
   // Fetch user's friends when component mounts
   useEffect(() => {
@@ -62,6 +70,32 @@ export default function FriendsScreen() {
       checkContactsPermission();
     }
   }, [user]);
+
+  // Auto refresh when screen comes into focus
+  useEffect(() => {
+    // Skip if this is the first focus or if the screen is not focused
+    if (!isFocused || isFirstFocus.current) {
+      if (isFocused) {
+        isFirstFocus.current = false;
+      }
+      return;
+    }
+
+    if (user) {
+      console.log("FriendsScreen focused - refreshing data");
+
+      // Use the refreshContactsQuietly function which now handles all updates
+      if (contactsPermissionGranted) {
+        console.log("Auto-refreshing all data including contacts");
+        refreshContactsQuietly();
+      } else {
+        // If no contacts permission, just update the other lists
+        fetchFriends();
+        fetchFriendRequests();
+        fetchSentRequests();
+      }
+    }
+  }, [user, isFocused, contactsPermissionGranted]);
 
   // Check if contacts permission is already granted
   const checkContactsPermission = async () => {
@@ -186,6 +220,28 @@ export default function FriendsScreen() {
     }
   };
 
+  // Silent refresh without UI indicators or alerts
+  const refreshContactsQuietly = async () => {
+    if (!contactsPermissionGranted) return;
+
+    try {
+      console.log("Starting silent refresh of contacts");
+
+      // First, make sure our friends list is up-to-date
+      await fetchFriends();
+      await fetchFriendRequests();
+      await fetchSentRequests();
+
+      console.log("Lists updated, now filtering contacts");
+
+      // Then update contacts with the latest data
+      await updateContactMatches();
+    } catch (error) {
+      console.error("Error silently refreshing contacts:", error);
+      // No alerts for silent refresh
+    }
+  };
+
   const loadContactMatches = async () => {
     try {
       const { data } = await Contacts.getContactsAsync({
@@ -216,9 +272,6 @@ export default function FriendsScreen() {
           JSON.stringify(contactsResult, null, 2)
         );
 
-        // Get current contact IDs for comparison
-        const currentContactIds = contactMatches.map((contact) => contact.id);
-
         // Format results
         const matches: ContactMatch[] = [];
         for (const [phone, userData] of Object.entries(contactsResult)) {
@@ -247,15 +300,15 @@ export default function FriendsScreen() {
               (request) => request.id === userInfo.id
             );
 
-            // Skip if this contact is already in our current list
-            if (currentContactIds.includes(userInfo.id)) {
+            // If there's a sent request, skip this user
+            if (hasSentRequest) {
               console.log(
-                `Skipping ${userInfo.username} - already in contacts list`
+                `Skipping ${userInfo.username} - already sent a request`
               );
               continue;
             }
 
-            // Include the user in matches, but mark if they have a pending request
+            // Include the user in matches
             matches.push({
               id: userInfo.id,
               username: userInfo.username,
@@ -263,24 +316,24 @@ export default function FriendsScreen() {
               last_name: userInfo.last_name,
               phone_number: phone,
               is_registered: true,
-              has_pending_request: hasSentRequest,
             });
           }
         }
 
-        // Only add new matches to existing contacts
+        // Replace existing contacts with new filtered list
         if (matches.length > 0) {
-          setContactMatches((prevMatches) => [...prevMatches, ...matches]);
+          setContactMatches(matches);
           console.log(`Found ${matches.length} new contact matches`);
           Alert.alert(
             "Contacts Synced",
-            `Found ${matches.length} new contacts using the app!`
+            `Found ${matches.length} contacts using the app!`
           );
         } else {
+          setContactMatches([]);
           console.log("No new contact matches found");
           Alert.alert(
-            "No New Contacts",
-            "All your contacts who use the app are already your friends, have pending requests, or are already in your contacts list."
+            "No Available Contacts",
+            "None of your contacts are using the app, or they are already your friends or have pending requests."
           );
         }
       } else {
@@ -295,12 +348,16 @@ export default function FriendsScreen() {
   // Silent version of loadContactMatches that doesn't show alerts
   const updateContactMatches = async () => {
     try {
+      if (!contactsPermissionGranted) return;
+
       const { data } = await Contacts.getContactsAsync({
         fields: [Contacts.Fields.PhoneNumbers, Contacts.Fields.Name],
       });
 
       if (data.length > 0) {
-        console.log(`Found ${data.length} contacts on device`);
+        console.log(
+          `Found ${data.length} contacts on device for silent refresh`
+        );
 
         // Extract phone numbers
         const phoneNumbers = data
@@ -315,9 +372,6 @@ export default function FriendsScreen() {
         // Check which contacts are registered users
         const contactsResult = await checkContacts(phoneNumbers);
 
-        // Get current contact IDs for comparison
-        const currentContactIds = contactMatches.map((contact) => contact.id);
-
         // Format results
         const matches: ContactMatch[] = [];
         for (const [phone, userData] of Object.entries(contactsResult)) {
@@ -325,11 +379,15 @@ export default function FriendsScreen() {
           if (userInfo.is_registered && userInfo.id !== user?.id) {
             // Skip users who are already friends
             if (friends.some((friend) => friend.id === userInfo.id)) {
+              console.log(`Skipping ${userInfo.username} - already a friend`);
               continue;
             }
 
             // Skip users who have incoming friend requests
             if (pendingRequests.some((request) => request.id === userInfo.id)) {
+              console.log(
+                `Skipping ${userInfo.username} - has pending request`
+              );
               continue;
             }
 
@@ -338,12 +396,15 @@ export default function FriendsScreen() {
               (request) => request.id === userInfo.id
             );
 
-            // Skip if this contact is already in our current list
-            if (currentContactIds.includes(userInfo.id)) {
+            // If there's a sent request, skip this user
+            if (hasSentRequest) {
+              console.log(
+                `Skipping ${userInfo.username} - already sent a request`
+              );
               continue;
             }
 
-            // Include the user in matches, but mark if they have a pending request
+            // Include the user in matches
             matches.push({
               id: userInfo.id,
               username: userInfo.username,
@@ -351,18 +412,16 @@ export default function FriendsScreen() {
               last_name: userInfo.last_name,
               phone_number: phone,
               is_registered: true,
-              has_pending_request: hasSentRequest,
             });
           }
         }
 
-        // Only add new matches to existing contacts
-        if (matches.length > 0) {
-          setContactMatches((prevMatches) => [...prevMatches, ...matches]);
-        }
+        // Replace existing contacts with new filtered list
+        setContactMatches(matches);
+        console.log(`Found ${matches.length} contacts in silent refresh`);
       }
     } catch (error) {
-      console.error("Error updating contacts:", error);
+      console.error("Error updating contacts silently:", error);
     }
   };
 
@@ -421,20 +480,16 @@ export default function FriendsScreen() {
       });
 
       if (response.ok) {
-        // Add the user to sent requests locally (in case the endpoint doesn't exist yet)
+        // Add the user to sent requests locally
         const friendToAdd = contactMatches.find((item) => item.id === friendId);
 
         if (friendToAdd) {
           setSentRequests((prev) => [...prev, friendToAdd as Friend]);
         }
 
-        // Update contact matches to show pending state
+        // Remove the contact from the matches list since they now have a pending request
         setContactMatches(
-          contactMatches.map((match) =>
-            match.id === friendId
-              ? { ...match, has_pending_request: true }
-              : match
-          )
+          contactMatches.filter((match) => match.id !== friendId)
         );
 
         Alert.alert("Friend Request Sent", "Friend request sent successfully!");
@@ -452,6 +507,11 @@ export default function FriendsScreen() {
           fetchFriends();
           fetchFriendRequests();
           fetchSentRequests();
+
+          // Also refresh contacts to remove this user from the list
+          if (contactsPermissionGranted) {
+            updateContactMatches();
+          }
         } else if (errorData.includes("User not found")) {
           Alert.alert(
             "User Not Found",
@@ -483,11 +543,27 @@ export default function FriendsScreen() {
       );
 
       if (response.ok) {
-        // Refresh all lists
-        fetchFriendRequests();
-        fetchFriends();
+        // Get the accepted friend before refreshing lists
+        const acceptedFriend = pendingRequests.find(
+          (request) => request.friendship_id === friendshipId
+        );
 
-        // Silently update contacts without alerts
+        // Refresh all lists
+        await fetchFriends();
+        await fetchFriendRequests();
+        await fetchSentRequests();
+
+        // Remove the accepted friend from contacts list immediately
+        if (acceptedFriend) {
+          console.log(
+            `Removing accepted friend ${acceptedFriend.username} from contacts`
+          );
+          setContactMatches((prevContacts) =>
+            prevContacts.filter((contact) => contact.id !== acceptedFriend.id)
+          );
+        }
+
+        // Update contacts to ensure consistency
         if (contactsPermissionGranted) {
           updateContactMatches();
         }
@@ -587,18 +663,12 @@ export default function FriendsScreen() {
         </Text>
         <Text style={styles.friendUsername}>@{item.username}</Text>
       </View>
-      {item.has_pending_request ? (
-        <View style={styles.pendingButton}>
-          <Ionicons name="ellipsis-horizontal" size={24} color="#999" />
-        </View>
-      ) : (
-        <TouchableOpacity
-          style={styles.addButton}
-          onPress={() => addFriend(item.id)}
-        >
-          <Ionicons name="add-circle" size={24} color="#007AFF" />
-        </TouchableOpacity>
-      )}
+      <TouchableOpacity
+        style={styles.addButton}
+        onPress={() => addFriend(item.id)}
+      >
+        <Ionicons name="add-circle" size={24} color="#007AFF" />
+      </TouchableOpacity>
     </View>
   );
 
@@ -1085,7 +1155,7 @@ const styles = StyleSheet.create({
   modalContainer: {
     flex: 1,
     backgroundColor: "#fff",
-    paddingTop: 65,
+    paddingTop: 70,
   },
   modalHeader: {
     flexDirection: "row",
