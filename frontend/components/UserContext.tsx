@@ -4,7 +4,9 @@ import React, {
   useState,
   ReactNode,
   useRef,
+  useEffect,
 } from "react";
+import * as Contacts from "expo-contacts";
 
 export interface User {
   id: number;
@@ -40,6 +42,7 @@ interface UserContextType {
   updateUserLocation: (latitude: number, longitude: number) => Promise<void>;
   checkContacts: (phoneNumbers: string[]) => Promise<any>;
   getFriendsWithLocations: () => Promise<FriendWithLocation[]>;
+  refreshContactsBackground: () => Promise<void>;
 }
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
@@ -67,6 +70,117 @@ const normalizePhoneNumber = (phone: string): string => {
 export const UserProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const lastUpdateTimeRef = useRef<number>(0);
+  const [contactsPermissionGranted, setContactsPermissionGranted] = useState<
+    boolean | null
+  >(null);
+
+  // Check for contacts permission
+  useEffect(() => {
+    const checkContactsPermission = async () => {
+      try {
+        const { status } = await Contacts.getPermissionsAsync();
+        setContactsPermissionGranted(status === "granted");
+      } catch (error) {
+        console.error("Error checking contacts permission:", error);
+        setContactsPermissionGranted(false);
+      }
+    };
+
+    checkContactsPermission();
+  }, []);
+
+  // When user changes (signs in), refresh contacts in the background
+  useEffect(() => {
+    if (user) {
+      refreshContactsBackground();
+    }
+  }, [user]);
+
+  // Function to fetch friends data
+  const fetchFriendsData = async () => {
+    if (!user) return;
+
+    try {
+      console.log("Prefetching friends data in background");
+
+      // Fetch friends list
+      const friendsResponse = await fetch(
+        `${API_URL}/users/${user.id}/friends`
+      );
+      if (!friendsResponse.ok) {
+        console.error("Failed to fetch friends:", friendsResponse.status);
+      } else {
+        console.log("Friends list prefetched successfully");
+      }
+
+      // Fetch pending friend requests
+      const requestsResponse = await fetch(
+        `${API_URL}/users/${user.id}/friend-requests`
+      );
+      if (!requestsResponse.ok) {
+        console.error(
+          "Failed to fetch friend requests:",
+          requestsResponse.status
+        );
+      } else {
+        console.log("Friend requests prefetched successfully");
+      }
+
+      // Fetch sent friend requests
+      const sentResponse = await fetch(
+        `${API_URL}/users/${user.id}/sent-friend-requests`
+      );
+      if (!sentResponse.ok) {
+        console.error("Failed to fetch sent requests:", sentResponse.status);
+      } else {
+        console.log("Sent requests prefetched successfully");
+      }
+    } catch (error) {
+      console.error("Error prefetching friends data:", error);
+    }
+  };
+
+  // Function to refresh contacts in the background
+  const refreshContactsBackground = async () => {
+    try {
+      // First fetch friends data to ensure it's available
+      await fetchFriendsData();
+
+      // Check if we have permission first
+      if (!contactsPermissionGranted) {
+        const { status } = await Contacts.getPermissionsAsync();
+        if (status !== "granted") {
+          console.log("No contacts permission, skipping background refresh");
+          return;
+        }
+      }
+
+      console.log("Starting background contacts refresh");
+
+      // Get contacts
+      const { data } = await Contacts.getContactsAsync({
+        fields: [Contacts.Fields.PhoneNumbers, Contacts.Fields.Name],
+      });
+
+      if (data.length > 0) {
+        console.log(`Found ${data.length} contacts for background refresh`);
+
+        // Extract phone numbers
+        const phoneNumbers = data
+          .filter(
+            (contact) => contact.phoneNumbers && contact.phoneNumbers.length > 0
+          )
+          .map((contact) => contact.phoneNumbers![0].number!);
+
+        // Check which contacts are registered users
+        await checkContacts(phoneNumbers);
+
+        console.log("Background contacts refresh completed");
+      }
+    } catch (error) {
+      console.error("Error in background contacts refresh:", error);
+    }
+  };
 
   // Function to update user location with throttling
   const updateUserLocation = async (latitude: number, longitude: number) => {
@@ -152,25 +266,14 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
   // Function to check contacts
   const checkContacts = async (phoneNumbers: string[]) => {
     try {
-      // Log the original phone numbers
-      console.log(
-        "Original phone numbers:",
-        JSON.stringify(phoneNumbers, null, 2)
-      );
-
       // Ensure all phone numbers are normalized
       const normalizedPhoneNumbers = phoneNumbers.map((phone) => {
         const normalized = normalizePhoneNumber(phone);
-        console.log(`Normalizing: ${phone} -> ${normalized}`);
         return normalized;
       });
 
       console.log(
         `Checking ${normalizedPhoneNumbers.length} contacts against the server`
-      );
-      console.log(
-        "Normalized phone numbers:",
-        JSON.stringify(normalizedPhoneNumbers, null, 2)
       );
 
       const response = await fetch(`${API_URL}/users/contacts/check`, {
@@ -185,7 +288,6 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
 
       if (response.ok) {
         const result = await response.json();
-        console.log("Server response:", JSON.stringify(result, null, 2));
         return result;
       } else {
         console.error("Failed to check contacts:", response.status);
@@ -205,6 +307,7 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
         updateUserLocation,
         checkContacts,
         getFriendsWithLocations,
+        refreshContactsBackground,
       }}
     >
       {children}

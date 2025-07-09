@@ -61,15 +61,46 @@ export default function FriendsScreen() {
   const isFirstFocus = useRef(true);
   const isFocused = useIsFocused();
 
-  // Fetch user's friends when component mounts
+  // Fetch user's friends when component mounts - with high priority
   useEffect(() => {
     if (user) {
-      fetchFriends();
-      fetchFriendRequests();
-      fetchSentRequests();
-      checkContactsPermission();
+      // Set a flag to track if we've loaded data
+      let isMounted = true;
+
+      const loadInitialData = async () => {
+        try {
+          console.log("FriendsScreen: Loading initial data with high priority");
+
+          // Start all requests in parallel for maximum speed
+          const friendsPromise = fetchFriends();
+          const requestsPromise = fetchFriendRequests();
+          const sentPromise = fetchSentRequests();
+
+          // Wait for all to complete
+          await Promise.all([friendsPromise, requestsPromise, sentPromise]);
+
+          // Check contacts permission
+          await checkContactsPermission();
+
+          // If component is still mounted and contacts permission is granted, update contacts
+          if (isMounted && contactsPermissionGranted) {
+            console.log("Auto-refreshing contacts on initial load");
+            await updateContactMatches();
+          }
+        } catch (error) {
+          console.error("Error loading initial data:", error);
+        }
+      };
+
+      // Execute immediately
+      loadInitialData();
+
+      // Cleanup function
+      return () => {
+        isMounted = false;
+      };
     }
-  }, [user]);
+  }, [user, contactsPermissionGranted]);
 
   // Auto refresh when screen comes into focus
   useEffect(() => {
@@ -84,15 +115,16 @@ export default function FriendsScreen() {
     if (user) {
       console.log("FriendsScreen focused - refreshing data");
 
+      // Always refresh friends, requests, and sent requests
+      fetchFriends();
+      fetchFriendRequests();
+      fetchSentRequests();
+
       // Use the refreshContactsQuietly function which now handles all updates
       if (contactsPermissionGranted) {
-        console.log("Auto-refreshing all data including contacts");
+        console.log("Auto-refreshing contacts in the background");
+        // This is now completely silent
         refreshContactsQuietly();
-      } else {
-        // If no contacts permission, just update the other lists
-        fetchFriends();
-        fetchFriendRequests();
-        fetchSentRequests();
       }
     }
   }, [user, isFocused, contactsPermissionGranted]);
@@ -195,7 +227,7 @@ export default function FriendsScreen() {
       await loadContactMatches();
     } catch (error) {
       console.error("Error syncing contacts:", error);
-      Alert.alert("Error", "Failed to sync contacts. Please try again.");
+      // No alert in silent mode
     } finally {
       setLoadingContacts(false);
     }
@@ -214,7 +246,7 @@ export default function FriendsScreen() {
       await loadContactMatches();
     } catch (error) {
       console.error("Error refreshing contacts:", error);
-      Alert.alert("Error", "Failed to refresh contacts. Please try again.");
+      // No alert in silent mode
     } finally {
       setLoadingContacts(false);
     }
@@ -227,23 +259,26 @@ export default function FriendsScreen() {
     try {
       console.log("Starting silent refresh of contacts");
 
-      // First, make sure our friends list is up-to-date
-      await fetchFriends();
-      await fetchFriendRequests();
-      await fetchSentRequests();
-
-      console.log("Lists updated, now filtering contacts");
-
-      // Then update contacts with the latest data
+      // updateContactMatches now handles fetching friends, requests, etc.
       await updateContactMatches();
+
+      console.log("Contact refresh completed");
     } catch (error) {
       console.error("Error silently refreshing contacts:", error);
       // No alerts for silent refresh
     }
   };
 
+  // This is now a silent version that doesn't show alerts
   const loadContactMatches = async () => {
     try {
+      // First, make sure we have the latest friends data
+      await Promise.all([
+        fetchFriends(),
+        fetchFriendRequests(),
+        fetchSentRequests(),
+      ]);
+
       const { data } = await Contacts.getContactsAsync({
         fields: [Contacts.Fields.PhoneNumbers, Contacts.Fields.Name],
       });
@@ -258,7 +293,6 @@ export default function FriendsScreen() {
           )
           .map((contact) => {
             const rawNumber = contact.phoneNumbers![0].number!;
-            console.log(`Contact ${contact.name}: ${rawNumber}`);
             return rawNumber;
           });
 
@@ -267,9 +301,13 @@ export default function FriendsScreen() {
         // Check which contacts are registered users
         const contactsResult = await checkContacts(phoneNumbers);
 
-        console.log(
-          "Server response:",
-          JSON.stringify(contactsResult, null, 2)
+        // Get current friend IDs for faster lookup
+        const friendIds = new Set(friends.map((friend) => friend.id));
+        const pendingRequestIds = new Set(
+          pendingRequests.map((request) => request.id)
+        );
+        const sentRequestIds = new Set(
+          sentRequests.map((request) => request.id)
         );
 
         // Format results
@@ -277,31 +315,22 @@ export default function FriendsScreen() {
         for (const [phone, userData] of Object.entries(contactsResult)) {
           const userInfo = userData as any;
           if (userInfo.is_registered && userInfo.id !== user?.id) {
-            console.log(
-              `Found registered user: ${userInfo.username} (${phone})`
-            );
-
             // Skip users who are already friends
-            if (friends.some((friend) => friend.id === userInfo.id)) {
+            if (friendIds.has(userInfo.id)) {
               console.log(`Skipping ${userInfo.username} - already a friend`);
               continue;
             }
 
             // Skip users who have incoming friend requests
-            if (pendingRequests.some((request) => request.id === userInfo.id)) {
+            if (pendingRequestIds.has(userInfo.id)) {
               console.log(
                 `Skipping ${userInfo.username} - has pending request`
               );
               continue;
             }
 
-            // Check if there's a sent request to this user
-            const hasSentRequest = sentRequests.some(
-              (request) => request.id === userInfo.id
-            );
-
-            // If there's a sent request, skip this user
-            if (hasSentRequest) {
+            // Skip users who have outgoing friend requests
+            if (sentRequestIds.has(userInfo.id)) {
               console.log(
                 `Skipping ${userInfo.username} - already sent a request`
               );
@@ -321,27 +350,12 @@ export default function FriendsScreen() {
         }
 
         // Replace existing contacts with new filtered list
-        if (matches.length > 0) {
-          setContactMatches(matches);
-          console.log(`Found ${matches.length} new contact matches`);
-          Alert.alert(
-            "Contacts Synced",
-            `Found ${matches.length} contacts using the app!`
-          );
-        } else {
-          setContactMatches([]);
-          console.log("No new contact matches found");
-          Alert.alert(
-            "No Available Contacts",
-            "None of your contacts are using the app, or they are already your friends or have pending requests."
-          );
-        }
-      } else {
-        Alert.alert("No Contacts", "No contacts found on your device.");
+        setContactMatches(matches);
+        console.log(`Found ${matches.length} contacts in silent refresh`);
       }
     } catch (error) {
       console.error("Error loading contacts:", error);
-      throw error;
+      // Don't throw error in silent mode
     }
   };
 
@@ -350,9 +364,22 @@ export default function FriendsScreen() {
     try {
       if (!contactsPermissionGranted) return;
 
-      const { data } = await Contacts.getContactsAsync({
+      // We'll assume friends data is already loaded or being loaded in parallel
+      // This makes the function faster by not waiting for friend data to load first
+
+      // Get current friend IDs for faster lookup - use what we have in state
+      const friendIds = new Set(friends.map((friend) => friend.id));
+      const pendingRequestIds = new Set(
+        pendingRequests.map((request) => request.id)
+      );
+      const sentRequestIds = new Set(sentRequests.map((request) => request.id));
+
+      // Start contacts request immediately
+      const contactsPromise = Contacts.getContactsAsync({
         fields: [Contacts.Fields.PhoneNumbers, Contacts.Fields.Name],
       });
+
+      const { data } = await contactsPromise;
 
       if (data.length > 0) {
         console.log(
@@ -378,29 +405,17 @@ export default function FriendsScreen() {
           const userInfo = userData as any;
           if (userInfo.is_registered && userInfo.id !== user?.id) {
             // Skip users who are already friends
-            if (friends.some((friend) => friend.id === userInfo.id)) {
-              console.log(`Skipping ${userInfo.username} - already a friend`);
+            if (friendIds.has(userInfo.id)) {
               continue;
             }
 
             // Skip users who have incoming friend requests
-            if (pendingRequests.some((request) => request.id === userInfo.id)) {
-              console.log(
-                `Skipping ${userInfo.username} - has pending request`
-              );
+            if (pendingRequestIds.has(userInfo.id)) {
               continue;
             }
 
-            // Check if there's a sent request to this user
-            const hasSentRequest = sentRequests.some(
-              (request) => request.id === userInfo.id
-            );
-
-            // If there's a sent request, skip this user
-            if (hasSentRequest) {
-              console.log(
-                `Skipping ${userInfo.username} - already sent a request`
-              );
+            // Skip users who have outgoing friend requests
+            if (sentRequestIds.has(userInfo.id)) {
               continue;
             }
 
