@@ -5,12 +5,17 @@ import { useUser } from "../components/UserContext";
 
 export default function SignInScreen() {
   const navigation = useNavigation();
-  const { setUser } = useUser();
+  const { setUser, refreshContactsBackground } = useUser();
 
   const handleSignInSuccess = (userData: any) => {
+    // Set the user data first
     setUser(userData);
-    // Navigate to Main screen only on successful login
+
+    // Navigate to Main screen
     navigation.navigate("Main" as never);
+
+    // Refresh contacts in the background after navigation
+    // This will happen automatically via the useEffect in UserContext
   };
 
   return (

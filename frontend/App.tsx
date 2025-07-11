@@ -5,9 +5,11 @@ import { Ionicons } from "@expo/vector-icons";
 import HomeScreen from "./screens/HomeScreen";
 import FindScreen from "./screens/FindScreen";
 import ProfileScreen from "./screens/ProfileScreen";
+import FriendsScreen from "./screens/FriendsScreen";
 import LandingScreen from "./screens/LandingScreen";
 import SignInScreen from "./screens/SignInScreen";
 import SignUpScreen from "./screens/SignUpScreen";
+import OnboardingScreen from "./screens/OnboardingScreen";
 import { UserProvider } from "./components/UserContext";
 
 const Tab = createBottomTabNavigator();
@@ -24,6 +26,8 @@ function MainTabs() {
             iconName = focused ? "map" : "map-outline";
           } else if (route.name === "Find") {
             iconName = focused ? "search" : "search-outline";
+          } else if (route.name === "Friends") {
+            iconName = focused ? "people" : "people-outline";
           } else if (route.name === "Profile") {
             iconName = focused ? "person" : "person-outline";
           }
@@ -37,6 +41,7 @@ function MainTabs() {
     >
       <Tab.Screen name="Home" component={HomeScreen} />
       <Tab.Screen name="Find" component={FindScreen} />
+      <Tab.Screen name="Friends" component={FriendsScreen} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>
   );
@@ -50,6 +55,7 @@ export default function App() {
           <Stack.Screen name="Landing" component={LandingScreen} />
           <Stack.Screen name="SignIn" component={SignInScreen} />
           <Stack.Screen name="SignUp" component={SignUpScreen} />
+          <Stack.Screen name="Onboarding" component={OnboardingScreen} />
           <Stack.Screen name="Main" component={MainTabs} />
         </Stack.Navigator>
       </NavigationContainer>

@@ -13,10 +13,10 @@ import {
   Image,
 } from "react-native";
 import { useUser } from "../components/UserContext";
+import { useNavigation } from "@react-navigation/native";
 import React, { useState, useEffect, useRef } from "react";
 import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
-import Slider from "@react-native-community/slider";
 
 const SOCIAL_KEYS = [
   "instagram",
@@ -44,40 +44,12 @@ interface EditData {
   interests: string[];
   links: { [K in SocialKey]: string };
   profile_picture?: string;
-  discovery_radius: number;
 }
 
-// Function to validate image URL
-const validateImageUrl = (url: string | null): boolean => {
-  if (!url) {
-    console.log("Image URL is null or empty");
-    return false;
-  }
-
-  // Check if it's a valid URL format
-  try {
-    new URL(url);
-    console.log("Image URL is valid format:", url);
-    return true;
-  } catch (e) {
-    // If it's not a valid URL, it might be a local file path
-    if (
-      url.startsWith("file://") ||
-      url.startsWith("/") ||
-      url.includes("assets")
-    ) {
-      console.log("Image URL appears to be a local file:", url);
-      return true;
-    }
-    console.error("Invalid image URL format:", url);
-    return false;
-  }
-};
-
-export default function ProfileScreen() {
+export default function OnboardingScreen() {
+  const navigation = useNavigation();
   const { user, setUser } = useUser();
   const [editData, setEditData] = useState<EditData | null>(null);
-  const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(false);
   const [interestInput, setInterestInput] = useState("");
   const interestInputRef = useRef<TextInput>(null);
@@ -87,13 +59,6 @@ export default function ProfileScreen() {
 
   useEffect(() => {
     if (user) {
-      console.log("ProfileScreen: Loading user data", user);
-      console.log("Profile picture URL:", user.profile_picture);
-
-      if (user.profile_picture) {
-        validateImageUrl(user.profile_picture);
-      }
-
       const presentSocials = SOCIAL_KEYS.filter((k) => user.links?.[k]);
       setAddedSocials(presentSocials);
       setEditData({
@@ -112,21 +77,8 @@ export default function ProfileScreen() {
           github: user.links?.github || "",
         },
         profile_picture: user.profile_picture || "",
-        discovery_radius: user.discovery_radius || 10,
       });
-
-      if (user.profile_picture) {
-        console.log(
-          "Setting profile image from user data:",
-          user.profile_picture
-        );
-        setProfileImage(user.profile_picture);
-      } else {
-        console.log("No profile picture found in user data");
-        setProfileImage(null);
-      }
-
-      setIsEditing(false);
+      setProfileImage(user.profile_picture || null);
       setInterestInput("");
     }
   }, [user]);
@@ -179,25 +131,14 @@ export default function ProfileScreen() {
 
       if (!result.canceled) {
         const imageUri = result.assets[0].uri;
-        console.log("Selected image URI:", imageUri);
+        setProfileImage(imageUri);
 
-        // Validate the image URI
-        if (validateImageUrl(imageUri)) {
-          setProfileImage(imageUri);
-
-          // Update editData with the new profile picture
-          if (editData) {
-            setEditData({
-              ...editData,
-              profile_picture: imageUri,
-            });
-          }
-          setIsEditing(true);
-        } else {
-          Alert.alert(
-            "Error",
-            "Invalid image format. Please try another image."
-          );
+        // Update editData with the new profile picture
+        if (editData) {
+          setEditData({
+            ...editData,
+            profile_picture: imageUri,
+          });
         }
       }
     } catch (error) {
@@ -206,47 +147,21 @@ export default function ProfileScreen() {
     }
   };
 
-  // Check if any field has changed
-  const isChanged = () => {
-    if (!user) return false;
-    const interestsArr = Array.isArray(user.interests) ? user.interests : [];
-    const userDiscoveryRadius =
-      user.discovery_radius !== undefined ? user.discovery_radius : 10;
-
-    return (
-      editData.username !== user.username ||
-      editData.first_name !== (user.first_name || "") ||
-      editData.last_name !== (user.last_name || "") ||
-      editData.hometown !== (user.hometown || "") ||
-      editData.school !== (user.school || "") ||
-      editData.job !== (user.job || "") ||
-      JSON.stringify(editData.interests) !== JSON.stringify(interestsArr) ||
-      SOCIAL_KEYS.some(
-        (k) => (editData.links[k] || "") !== (user.links?.[k] || "")
-      ) ||
-      editData.profile_picture !== user.profile_picture ||
-      editData.discovery_radius !== userDiscoveryRadius
-    );
-  };
-
   const handleChange = (
     field: keyof Omit<EditData, "interests" | "links" | "profile_picture">,
     value: string
   ) => {
     setEditData({ ...editData, [field]: value });
-    setIsEditing(true);
   };
 
   const handleSocialChange = (key: SocialKey, value: string) => {
     setEditData({ ...editData, links: { ...editData.links, [key]: value } });
-    setIsEditing(true);
   };
 
   const handleAddInterest = () => {
     const trimmed = interestInput.trim();
     if (trimmed && !editData.interests.includes(trimmed)) {
       setEditData({ ...editData, interests: [...editData.interests, trimmed] });
-      setIsEditing(true);
     }
     setInterestInput("");
     Keyboard.dismiss();
@@ -257,72 +172,11 @@ export default function ProfileScreen() {
       ...editData,
       interests: editData.interests.filter((i) => i !== interest),
     });
-    setIsEditing(true);
   };
 
-  const handleCancel = () => {
-    console.log("Cancelling edits, restoring original profile data");
-    console.log("Original profile picture:", user.profile_picture);
-
-    setEditData({
-      username: user.username || "",
-      first_name: user.first_name || "",
-      last_name: user.last_name || "",
-      hometown: user.hometown || "",
-      school: user.school || "",
-      job: user.job || "",
-      interests: Array.isArray(user.interests) ? user.interests : [],
-      links: {
-        instagram: user.links?.instagram || "",
-        snapchat: user.links?.snapchat || "",
-        spotify: user.links?.spotify || "",
-        linkedin: user.links?.linkedin || "",
-        github: user.links?.github || "",
-      },
-      profile_picture: user.profile_picture || "",
-      discovery_radius: user.discovery_radius || 10,
-    });
-
-    if (user.profile_picture) {
-      console.log("Restoring profile image to:", user.profile_picture);
-      setProfileImage(user.profile_picture);
-    } else {
-      console.log("Clearing profile image");
-      setProfileImage(null);
-    }
-
-    setIsEditing(false);
-    setInterestInput("");
-  };
-
-  // Function to prepare profile picture for saving
-  const prepareProfilePicture = (imageUri: string | null): string | null => {
-    if (!imageUri) return null;
-
-    // Log the image URI for debugging
-    console.log("Preparing profile picture:", imageUri);
-
-    // If it's already a valid URL, return it as is
-    if (imageUri.startsWith("http://") || imageUri.startsWith("https://")) {
-      console.log("Image is already a valid URL");
-      return imageUri;
-    }
-
-    // If it's a file URI, ensure it's properly formatted
-    if (imageUri.startsWith("file://")) {
-      console.log("Image is a file URI");
-      return imageUri;
-    }
-
-    // If it's a local path without the file:// prefix, add it
-    if (imageUri.startsWith("/")) {
-      const formattedUri = `file://${imageUri}`;
-      console.log("Formatted local path to:", formattedUri);
-      return formattedUri;
-    }
-
-    // For other formats (like data URLs), return as is
-    return imageUri;
+  const handleSkip = () => {
+    // Navigate to the main app
+    navigation.navigate("Main" as never);
   };
 
   const handleSave = async () => {
@@ -342,11 +196,6 @@ export default function ProfileScreen() {
         }
       }
     });
-
-    // Prepare the profile picture for saving
-    const formattedProfileImage = prepareProfilePicture(profileImage);
-    console.log("Saving profile with image:", formattedProfileImage);
-
     const payload = {
       username: editData.username,
       first_name: editData.first_name,
@@ -356,35 +205,24 @@ export default function ProfileScreen() {
       job: editData.job,
       interests: editData.interests,
       links,
-      profile_picture: formattedProfileImage,
-      discovery_radius: editData.discovery_radius,
+      profile_picture: profileImage,
     };
-
     try {
-      console.log(
-        "Sending update request with payload:",
-        JSON.stringify(payload)
-      );
       const response = await fetch(`http://10.0.0.64:8000/users/${user.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-
       if (!response.ok) {
         const errorData = await response.json().catch(() => null);
         throw new Error(errorData?.detail || "Failed to update profile");
       }
-
       const updatedUser = await response.json();
-      console.log("Profile updated successfully:", updatedUser);
-      console.log("Updated profile picture:", updatedUser.profile_picture);
-
       setUser(updatedUser);
-      setIsEditing(false);
-      Alert.alert("Success", "Profile updated successfully");
+
+      // Navigate to the main app
+      navigation.navigate("Main" as never);
     } catch (err: any) {
-      console.error("Error updating profile:", err);
       Alert.alert("Error", err.message || "Failed to update profile");
     } finally {
       setLoading(false);
@@ -394,7 +232,6 @@ export default function ProfileScreen() {
   const handleAddSocial = (key: SocialKey) => {
     setAddedSocials([...addedSocials, key]);
     setShowSocialPicker(false);
-    setIsEditing(true);
   };
 
   const handleRemoveSocial = (key: SocialKey) => {
@@ -403,7 +240,6 @@ export default function ProfileScreen() {
       ...editData,
       links: { ...editData.links, [key]: "" },
     });
-    setIsEditing(true);
   };
 
   return (
@@ -417,10 +253,10 @@ export default function ProfileScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.profileCard}>
-          <Text style={styles.title}>
-            {editData.first_name
-              ? `${editData.first_name}'s Profile`
-              : "Profile"}
+          <Text style={styles.title}>Tell us about you!</Text>
+          <Text style={styles.subtitle}>
+            Help others get to know you better. You can always update this
+            information later.
           </Text>
 
           {/* Profile Picture Section */}
@@ -431,23 +267,10 @@ export default function ProfileScreen() {
           >
             <View style={styles.profileImageContainer}>
               {profileImage ? (
-                <View style={styles.imageWrapper}>
-                  <Image
-                    source={{ uri: profileImage }}
-                    style={styles.profileImage}
-                    onLoad={() =>
-                      console.log("Profile image loaded successfully")
-                    }
-                    onError={(error) => {
-                      console.error(
-                        "Error loading profile image:",
-                        error.nativeEvent.error
-                      );
-                      // If the image fails to load, show the initials instead
-                      setProfileImage(null);
-                    }}
-                  />
-                </View>
+                <Image
+                  source={{ uri: profileImage }}
+                  style={styles.profileImage}
+                />
               ) : (
                 <View style={styles.profilePlaceholder}>
                   <Text style={styles.initialsText}>
@@ -474,6 +297,7 @@ export default function ProfileScreen() {
               style={styles.input}
               value={editData.hometown}
               onChangeText={(v) => handleChange("hometown", v)}
+              placeholder="Where are you from?"
             />
           </View>
           <View style={styles.section}>
@@ -482,6 +306,7 @@ export default function ProfileScreen() {
               style={styles.input}
               value={editData.school}
               onChangeText={(v) => handleChange("school", v)}
+              placeholder="Where do/did you go to school?"
             />
           </View>
           <View style={styles.section}>
@@ -490,33 +315,8 @@ export default function ProfileScreen() {
               style={styles.input}
               value={editData.job}
               onChangeText={(v) => handleChange("job", v)}
+              placeholder="What do you do?"
             />
-          </View>
-          <View style={styles.section}>
-            <Text style={styles.label}>Discovery Radius</Text>
-            <View style={styles.radiusContainer}>
-              <Text style={styles.radiusValue}>
-                {Math.round(editData.discovery_radius)} miles
-              </Text>
-              <Slider
-                style={styles.radiusSlider}
-                minimumValue={0}
-                maximumValue={50}
-                step={1}
-                value={editData.discovery_radius}
-                onValueChange={(value) => {
-                  setEditData({ ...editData, discovery_radius: value });
-                  setIsEditing(true);
-                }}
-                minimumTrackTintColor="#007AFF"
-                maximumTrackTintColor="#d3d3d3"
-                thumbTintColor="#007AFF"
-              />
-              <View style={styles.radiusLabels}>
-                <Text style={styles.radiusLabelText}>0 mi</Text>
-                <Text style={styles.radiusLabelText}>50 mi</Text>
-              </View>
-            </View>
           </View>
           <View style={styles.section}>
             <Text style={styles.label}>Interests</Text>
@@ -614,30 +414,29 @@ export default function ProfileScreen() {
               )
             )}
           </View>
-          {isChanged() && (
-            <View style={styles.buttonRow}>
-              <TouchableOpacity
-                style={[
-                  styles.button,
-                  styles.saveButton,
-                  loading && styles.disabledButton,
-                ]}
-                onPress={handleSave}
-                disabled={loading}
-              >
-                <Text style={styles.buttonText}>
-                  {loading ? "Saving..." : "Save"}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.button, styles.cancelButton]}
-                onPress={handleCancel}
-                disabled={loading}
-              >
-                <Text style={styles.buttonText}>Cancel</Text>
-              </TouchableOpacity>
-            </View>
-          )}
+
+          <View style={styles.buttonRow}>
+            <TouchableOpacity
+              style={[
+                styles.button,
+                styles.saveButton,
+                loading && styles.disabledButton,
+              ]}
+              onPress={handleSave}
+              disabled={loading}
+            >
+              <Text style={styles.buttonText}>
+                {loading ? "Saving..." : "Continue"}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.button, styles.skipButton]}
+              onPress={handleSkip}
+              disabled={loading}
+            >
+              <Text style={styles.skipButtonText}>Skip</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -673,59 +472,14 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: "bold",
     color: "#007AFF",
-    marginBottom: 18,
+    marginBottom: 12,
     textAlign: "left",
   },
-  profilePictureSection: {
-    alignItems: "center",
-    marginBottom: 24,
-    width: "100%",
-  },
-  profileImageContainer: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: "#f0f4f8",
-    justifyContent: "center",
-    alignItems: "center",
-    position: "relative",
-    marginBottom: 8,
-    borderWidth: 2,
-    borderColor: "#e0e0e0",
-    overflow: "hidden",
-  },
-  imageWrapper: {
-    width: "100%",
-    height: "100%",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  profileImage: {
-    width: "100%",
-    height: "100%",
-    borderRadius: 60,
-  },
-  profilePlaceholder: {
-    width: "100%",
-    height: "100%",
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#007AFF",
-  },
-  editIconContainer: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    top: 0,
-    backgroundColor: "transparent",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  profilePictureText: {
+  subtitle: {
     fontSize: 16,
-    color: "#007AFF",
-    marginTop: 8,
+    color: "#666",
+    marginBottom: 24,
+    lineHeight: 22,
   },
   section: {
     marginBottom: 16,
@@ -811,28 +565,37 @@ const styles = StyleSheet.create({
   },
   buttonRow: {
     flexDirection: "row",
-    justifyContent: "flex-end",
-    marginTop: 18,
-    gap: 12,
+    justifyContent: "space-between",
+    marginTop: 24,
+    width: "100%",
   },
   button: {
-    paddingVertical: 10,
-    paddingHorizontal: 22,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
     borderRadius: 8,
     alignItems: "center",
-    marginLeft: 8,
+    justifyContent: "center",
+    flex: 1,
   },
   saveButton: {
     backgroundColor: "#007AFF",
+    marginRight: 8,
   },
-  cancelButton: {
-    backgroundColor: "#aaa",
+  skipButton: {
+    backgroundColor: "transparent",
+    borderWidth: 1,
+    borderColor: "#007AFF",
   },
   disabledButton: {
     opacity: 0.6,
   },
   buttonText: {
     color: "#fff",
+    fontWeight: "600",
+    fontSize: 16,
+  },
+  skipButtonText: {
+    color: "#007AFF",
     fontWeight: "600",
     fontSize: 16,
   },
@@ -889,41 +652,54 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  profilePictureSection: {
+    alignItems: "center",
+    marginBottom: 24,
+    width: "100%",
+  },
+  profileImageContainer: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: "#f0f4f8",
+    justifyContent: "center",
+    alignItems: "center",
+    position: "relative",
+    marginBottom: 8,
+    borderWidth: 2,
+    borderColor: "#e0e0e0",
+    overflow: "hidden",
+  },
+  profileImage: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 60,
+  },
+  profilePlaceholder: {
+    width: "100%",
+    height: "100%",
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#007AFF",
+  },
+  editIconContainer: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    top: 0,
+    backgroundColor: "transparent",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  profilePictureText: {
+    fontSize: 16,
+    color: "#007AFF",
+    marginTop: 8,
+  },
   initialsText: {
     fontSize: 40,
     fontWeight: "bold",
     color: "#fff",
-  },
-  radiusContainer: {
-    width: "100%",
-    marginVertical: 10,
-  },
-  radiusValue: {
-    fontSize: 17,
-    color: "#222",
-    fontWeight: "500",
-    textAlign: "center",
-    marginBottom: 8,
-  },
-  radiusSlider: {
-    width: "100%",
-    height: 40,
-  },
-  radiusLabels: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    width: "100%",
-    paddingHorizontal: 5,
-    marginTop: 5,
-  },
-  radiusLabelText: {
-    fontSize: 12,
-    color: "#888",
-  },
-  radiusDescription: {
-    fontSize: 14,
-    color: "#888",
-    marginTop: 4,
-    textAlign: "center",
   },
 });
